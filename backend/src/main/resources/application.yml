@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: monitoring-backend
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/monitoring
+    username: monitoring_user
+    password: monitoring_pass
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+server:
+  port: 8080
