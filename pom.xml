@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    ROOT AGGREGATOR POM
+    ===================
+    This file is the entry point for the entire monorepo.
+    It does NOT define any dependencies, plugins, or shared code.
+    Its only job is to tell Maven (and the VS Code Java extension) that
+    this workspace contains two separate Maven projects:
+
+      - backend/   → Spring Boot REST + WebSocket server (monitoring-backend)
+      - agent/     → Lightweight Java metric collector (monitoring-agent)
+
+    Who uses this file:
+      - Maven: "mvn package" at this level builds both modules in order.
+      - VS Code Java extension: discovers both modules as proper Java projects,
+        which resolves the "non-project file" and "package does not match" errors
+        that appear when only the submodule pom.xml files exist.
+
+    This file does NOT affect how backend/ or agent/ compile individually.
+    You can still run "mvn package" inside each subfolder on its own.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.yourteam</groupId>
+    <artifactId>monitoring-root</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>monitoring-root</name>
+
+    <modules>
+        <module>backend</module>
+        <module>agent</module>
+    </modules>
+</project>

@@ -1,0 +1,15 @@
+# Maven build output — never commit compiled classes or JARs
+target/
+
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db

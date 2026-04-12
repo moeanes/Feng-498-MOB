@@ -1,4 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+    BACKEND MODULE POM
+    ==================
+    Defines the Spring Boot REST + WebSocket server.
+    Inherits from spring-boot-starter-parent so all Spring dependency
+    versions are managed automatically — no explicit version numbers needed
+    for Spring libraries.
+
+    Dependencies declared here and the classes that rely on them:
+      spring-boot-starter-web        → MachineController, AgentMetricController (REST endpoints)
+      spring-boot-starter-websocket  → websocket package (real-time dashboard push)
+      spring-boot-starter-data-jpa   → MachineRepository, MetricRecordRepository (DB access)
+      spring-boot-starter-security   → SecurityConfig (request authentication)
+      spring-boot-starter-validation → AgentMetricIngestRequest, CreateMachineRequest (@Valid)
+      spring-boot-starter-actuator   → exposes /actuator/health for Docker health checks
+      flyway-core / flyway-postgresql → runs V1__init.sql on startup (schema migrations)
+      postgresql                     → JDBC driver used by all Repository classes
+      lombok                         → reduces boilerplate (getters/setters) across domain classes
+
+    Build plugin:
+      spring-boot-maven-plugin  → packages everything as a single runnable fat JAR
+                                  (java -jar monitoring-backend.jar)
+-->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
