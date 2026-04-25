@@ -5,7 +5,7 @@
     "buildCommand": "if [ -d frontend ]; then cd frontend; fi; npm run build"
   },
   "deploy": {
-    "startCommand": "if [ -d frontend ]; then cd frontend; fi; npm run preview -- --host 0.0.0.0 --port ${PORT:-4173}",
+    "startCommand": "if [ -d frontend ]; then cd frontend; fi; npm run preview -- --host 0.0.0.0 --port $PORT",
     "healthcheckPath": "/",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",
