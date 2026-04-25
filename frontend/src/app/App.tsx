@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Activity, Cpu, HardDrive, Network, Clock, Server, AlertCircle } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+
 interface Machine {
   id: string;
   name: string;
@@ -95,7 +97,7 @@ export default function App() {
   useEffect(() => {
     const fetchMachines = async () => {
       try {
-        const response = await fetch('/api/v1/machines');
+        const response = await fetch(`${API_BASE_URL}/api/v1/machines`);
         if (!response.ok) {
           throw new Error('Failed to fetch machines');
         }
