@@ -1,6 +1,11 @@
 # Maven build output — never commit compiled classes or JARs
 target/
 
+# Frontend dependencies and build output
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
 # IntelliJ IDEA
 .idea/
 *.iws
@@ -13,5 +18,4 @@ target/
 # OS files
 .DS_Store
 Thumbs.db
-
 
