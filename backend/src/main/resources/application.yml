@@ -3,9 +3,9 @@ spring:
     name: monitoring-backend
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/monitoring
-    username: monitoring_user
-    password: monitoring_pass
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/monitoring}
+    username: ${SPRING_DATASOURCE_USERNAME:monitoring_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:monitoring_pass}
 
   jpa:
     hibernate:
@@ -26,4 +26,4 @@ management:
         include: health,info
 
 server:
-  port: 8080
+  port: ${PORT:8080}

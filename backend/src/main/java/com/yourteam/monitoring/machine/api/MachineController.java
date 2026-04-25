@@ -9,10 +9,12 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -37,6 +39,20 @@ public class MachineController {
     @GetMapping("/{machineId}")
     public MachineResponse getMachine(@PathVariable UUID machineId) {
         return machineService.getMachineById(machineId);
+    }
+
+    @GetMapping("/{machineId}/latest")
+    public MachineMetricResponse getLatestMetric(@PathVariable UUID machineId) {
+        return machineService.getLatestMetric(machineId);
+    }
+
+    @GetMapping("/{machineId}/metrics")
+    public List<MachineMetricResponse> getMetricHistory(
+            @PathVariable UUID machineId,
+            @RequestParam Instant from,
+            @RequestParam Instant to
+    ) {
+        return machineService.getMetricHistory(machineId, from, to);
     }
 
     @PostMapping

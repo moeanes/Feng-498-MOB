@@ -98,4 +98,28 @@ public class MetricRecord {
     public Instant getRecordedAt() {
         return recordedAt;
     }
+
+    public Double getCpuUsage() {
+        return cpuUsage;
+    }
+
+    public Double getRamUsage() {
+        return ramUsage;
+    }
+
+    public Double getDiskUsage() {
+        return diskUsage;
+    }
+
+    public Double getNetInKbps() {
+        return netInKbps;
+    }
+
+    public Double getNetOutKbps() {
+        return netOutKbps;
+    }
+
+    public Long getUptimeSeconds() {
+        return uptimeSeconds;
+    }
 }
