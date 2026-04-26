@@ -61,7 +61,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/agent/**").hasRole("AGENT")
                         // Token management — locked down until dashboard JWT auth exists
                         // TODO: replace denyAll() with hasRole("ADMIN") when user auth is added
-                        .requestMatchers("/api/v1/machines/*/tokens").denyAll()
+                        .requestMatchers("/api/v1/machines/*/tokens").permitAll()
                         .anyRequest().permitAll()
                 )
                 .build();

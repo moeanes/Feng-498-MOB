@@ -10,11 +10,12 @@ import java.util.UUID;
 
 public interface MetricRecordRepository extends JpaRepository<MetricRecord, Long> {
 
+    /** Returns the 30 most recent metric records for a machine, newest first. */
+    List<MetricRecord> findTop30ByMachineIdOrderByRecordedAtDesc(UUID machineId);
+
+    /** Returns the single most recent metric record for a machine. */
     Optional<MetricRecord> findTopByMachineIdOrderByRecordedAtDesc(UUID machineId);
 
-    List<MetricRecord> findByMachineIdAndRecordedAtBetweenOrderByRecordedAtAsc(
-            UUID machineId,
-            Instant from,
-            Instant to
-    );
+    /** Returns all metric records for a machine within the given time range, oldest first. */
+    List<MetricRecord> findByMachineIdAndRecordedAtBetweenOrderByRecordedAtAsc(UUID machineId, Instant from, Instant to);
 }

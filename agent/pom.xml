@@ -67,6 +67,8 @@
     </dependencies>
 
     <build>
+        <!-- Stable output name so deployment scripts always reference monitoring-agent.jar -->
+        <finalName>monitoring-agent</finalName>
         <plugins>
             <!-- Package as a fat/uber jar so it can run with: java -jar agent.jar -->
             <plugin>

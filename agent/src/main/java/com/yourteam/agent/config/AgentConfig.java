@@ -1,12 +1,20 @@
 package com.yourteam.agent.config;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.InputStream;
 import java.util.Properties;
 import java.util.UUID;
 
 /**
- * Loads agent.properties from the classpath and exposes each setting
- * as a strongly-typed public final field.
+ * Loads agent.properties and exposes each setting as a strongly-typed public final field.
+ *
+ * Config resolution order:
+ *   1. agent.properties in the current working directory (same folder as the JAR).
+ *      This is the deployment path — each Windows machine has its own config file
+ *      next to the JAR without requiring a rebuild.
+ *   2. agent.properties on the classpath (src/main/resources/).
+ *      This is the development fallback so local runs still work without changes.
  *
  * Validation happens at construction time: if a required key is missing
  * or malformed the agent refuses to start with a clear error message,
@@ -31,14 +39,26 @@ public class AgentConfig {
 
     public AgentConfig() {
         Properties props = new Properties();
-        try (InputStream in = getClass().getClassLoader()
-                .getResourceAsStream("agent.properties")) {
-            if (in == null) {
-                throw new IllegalStateException(
-                        "agent.properties not found on classpath. " +
-                        "Make sure the file is present in src/main/resources/.");
+        File externalConfig = new File("agent.properties");
+        try {
+            if (externalConfig.exists()) {
+                // Deployment path: read from the folder where the JAR lives
+                try (InputStream in = new FileInputStream(externalConfig)) {
+                    props.load(in);
+                }
+            } else {
+                // Development fallback: read from classpath (src/main/resources/)
+                try (InputStream in = getClass().getClassLoader()
+                        .getResourceAsStream("agent.properties")) {
+                    if (in == null) {
+                        throw new IllegalStateException(
+                                "agent.properties not found. " +
+                                "Place agent.properties in the same folder as the JAR " +
+                                "(deployment), or in src/main/resources/ (development).");
+                    }
+                    props.load(in);
+                }
             }
-            props.load(in);
         } catch (IllegalStateException e) {
             throw e;
         } catch (Exception e) {

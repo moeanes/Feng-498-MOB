@@ -36,46 +36,6 @@ interface MachineMetrics {
   }>;
 }
 
-// Generate mock historical data
-const generateHistoricalData = () => {
-  const data: Array<{
-    time: string;
-    timestamp: number;
-    cpu: number;
-    ram: number;
-    disk: number;
-    netIn: number;
-    netOut: number;
-  }> = [];
-  const now = Date.now();
-  for (let i = 30; i >= 0; i--) {
-    const timestamp = now - i * 60000; // 1 minute intervals
-    data.push({
-      time: new Date(timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      timestamp,
-      cpu: 15 + Math.random() * 45,
-      ram: 40 + Math.random() * 30,
-      disk: 62 + Math.random() * 8,
-      netIn: 100 + Math.random() * 400,
-      netOut: 50 + Math.random() * 200,
-    });
-  }
-  return data;
-};
-
-// Generate mock current metrics for a machine
-const generateCurrentMetrics = (machineId: string, baseValues: any): MachineMetrics => ({
-  machineId,
-  recordedAt: new Date().toISOString(),
-  cpuUsage: baseValues.cpuBase + Math.random() * 15,
-  ramUsage: baseValues.ramBase + Math.random() * 10,
-  diskUsage: baseValues.diskBase + Math.random() * 5,
-  netInKbps: baseValues.netInBase + Math.random() * 200,
-  netOutKbps: baseValues.netOutBase + Math.random() * 100,
-  uptimeSeconds: baseValues.uptimeBase + Math.floor(Math.random() * 10000),
-  history: generateHistoricalData(),
-});
-
 const formatUptime = (seconds: number) => {
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
@@ -103,19 +63,6 @@ export default function App() {
         }
         const data: Machine[] = await response.json();
         setMachines(data);
-        // Initialize mock metrics for now
-        const initialMetrics: Record<string, MachineMetrics> = {};
-        data.forEach(machine => {
-          initialMetrics[machine.id] = generateCurrentMetrics(machine.id, {
-            cpuBase: 20 + Math.random() * 20,
-            ramBase: 40 + Math.random() * 20,
-            diskBase: 50 + Math.random() * 20,
-            netInBase: 100 + Math.random() * 100,
-            netOutBase: 50 + Math.random() * 50,
-            uptimeBase: 1000000 + Math.random() * 1000000,
-          });
-        });
-        setMetrics(initialMetrics);
       } catch (error) {
         console.error(error);
       }
@@ -124,45 +71,63 @@ export default function App() {
     fetchMachines();
   }, []);
 
-
   useEffect(() => {
-    const interval = setInterval(() => {
-      setMetrics(prevMetrics => {
-        const newMetrics = { ...prevMetrics };
-        for (const machineId in newMetrics) {
-          const machine = newMetrics[machineId];
-          const baseValues = {
-            cpuBase: machine.cpuUsage - 7.5,
-            ramBase: machine.ramUsage - 5,
-            diskBase: machine.diskUsage - 2.5,
-            netInBase: machine.netInKbps - 100,
-            netOutBase: machine.netOutKbps - 50,
-            uptimeBase: machine.uptimeSeconds,
-          };
+    if (machines.length === 0) return;
 
-          const updated = generateCurrentMetrics(machine.machineId, baseValues);
+    const fetchAllMetrics = async () => {
+      await Promise.all(
+        machines.map(async (machine) => {
+          try {
+            const res = await fetch(`${API_BASE_URL}/api/v1/machines/${machine.id}/metrics/history`);
+            if (!res.ok) return;
+            const records: Array<{
+              machineId: string;
+              recordedAt: string;
+              cpuUsage: number;
+              ramUsage: number;
+              diskUsage: number;
+              netInKbps: number | null;
+              netOutKbps: number | null;
+              uptimeSeconds: number | null;
+            }> = await res.json();
+            if (records.length === 0) return;
 
-          // Update history
-          const newHistory = [...machine.history.slice(1)];
-          const now = new Date();
-          const timestamp = now.getTime();
-          newHistory.push({
-            time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            timestamp,
-            cpu: updated.cpuUsage,
-            ram: updated.ramUsage,
-            disk: updated.diskUsage,
-            netIn: updated.netInKbps,
-            netOut: updated.netOutKbps,
-          });
-          newMetrics[machineId] = { ...updated, history: newHistory };
-        }
-        return newMetrics;
-      });
-    }, 3000);
+            const latest = records[records.length - 1];
+            const history = records.map(r => ({
+              time: new Date(r.recordedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              timestamp: new Date(r.recordedAt).getTime(),
+              cpu: r.cpuUsage,
+              ram: r.ramUsage,
+              disk: r.diskUsage,
+              netIn: r.netInKbps ?? 0,
+              netOut: r.netOutKbps ?? 0,
+            }));
 
+            setMetrics(prev => ({
+              ...prev,
+              [machine.id]: {
+                machineId: machine.id,
+                recordedAt: latest.recordedAt,
+                cpuUsage: latest.cpuUsage,
+                ramUsage: latest.ramUsage,
+                diskUsage: latest.diskUsage,
+                netInKbps: latest.netInKbps ?? 0,
+                netOutKbps: latest.netOutKbps ?? 0,
+                uptimeSeconds: latest.uptimeSeconds ?? 0,
+                history,
+              },
+            }));
+          } catch (err) {
+            console.error('Failed to fetch metrics for', machine.id, err);
+          }
+        })
+      );
+    };
+
+    fetchAllMetrics();
+    const interval = setInterval(fetchAllMetrics, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [machines]);
 
   const getOverallStatus = (machine: Machine) => {
     const machineMetrics = metrics[machine.id];
@@ -292,7 +257,7 @@ export default function App() {
               <div className="bg-neutral-900 border border-neutral-800 p-6">
                 <div className="flex items-center gap-2 text-neutral-400 text-sm mb-3">
                   <HardDrive className="w-4 h-4" />
-                  <span>Disk</span>
+                  <span>Disk Space</span>
                 </div>
                 <div className={`text-4xl mb-1 ${getStatusColor(displayedMachineMetrics.diskUsage, { warning: 80, critical: 90 })}`}>
                   {displayedMachineMetrics.diskUsage.toFixed(1)}%

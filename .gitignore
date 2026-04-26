@@ -1,10 +1,10 @@
 # Maven build output — never commit compiled classes or JARs
 target/
 
-# Frontend dependencies and build output
-node_modules/
-frontend/node_modules/
-frontend/dist/
+# Agent deployment — real config contains machine tokens, never commit
+MonitoringAgent/agent.properties
+# The built JAR is a binary artifact, not source
+MonitoringAgent/monitoring-agent.jar
 
 # IntelliJ IDEA
 .idea/
@@ -18,4 +18,5 @@ frontend/dist/
 # OS files
 .DS_Store
 Thumbs.db
+
 
