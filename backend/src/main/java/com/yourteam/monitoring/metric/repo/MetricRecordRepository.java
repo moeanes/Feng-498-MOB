@@ -18,4 +18,7 @@ public interface MetricRecordRepository extends JpaRepository<MetricRecord, Long
 
     /** Returns all metric records for a machine within the given time range, oldest first. */
     List<MetricRecord> findByMachineIdAndRecordedAtBetweenOrderByRecordedAtAsc(UUID machineId, Instant from, Instant to);
+
+    /** Returns the most recent N records for a machine, newest first — caller reverses for chart. */
+    List<MetricRecord> findByMachineIdOrderByRecordedAtDesc(UUID machineId, org.springframework.data.domain.Pageable pageable);
 }

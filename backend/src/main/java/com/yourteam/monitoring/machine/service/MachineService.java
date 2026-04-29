@@ -51,6 +51,18 @@ public class MachineService {
         return toMetricResponse(latest);
     }
 
+    public List<MachineMetricResponse> getRecentMetricHistory(UUID machineId) {
+        getMachineOrThrow(machineId);
+        var records = metricRecordRepository
+                .findByMachineIdOrderByRecordedAtDesc(
+                        machineId,
+                        org.springframework.data.domain.PageRequest.of(0, 200));
+        // Reverse so the chart gets oldest-first order
+        var reversed = new java.util.ArrayList<>(records);
+        java.util.Collections.reverse(reversed);
+        return reversed.stream().map(this::toMetricResponse).toList();
+    }
+
     public List<MachineMetricResponse> getMetricHistory(UUID machineId, Instant from, Instant to) {
         getMachineOrThrow(machineId);
         if (from.isAfter(to)) {
