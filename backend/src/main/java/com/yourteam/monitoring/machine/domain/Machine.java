@@ -103,6 +103,13 @@ public class Machine {
         this.lastSeen = seenAt == null ? Instant.now() : seenAt;
     }
 
+    public void updateSystemInfo(String hostname, String ipAddress, String osName, String agentVersion) {
+        if (hostname != null && !hostname.isBlank()) this.hostname = hostname;
+        if (ipAddress != null && !ipAddress.isBlank()) this.ipAddress = ipAddress;
+        if (osName != null && !osName.isBlank()) this.osName = osName;
+        if (agentVersion != null && !agentVersion.isBlank()) this.agentVersion = agentVersion;
+    }
+
     @PrePersist
     void prePersist() {
         if (status == null) {

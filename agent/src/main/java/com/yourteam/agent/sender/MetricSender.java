@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.yourteam.agent.config.AgentConfig;
 import com.yourteam.agent.dto.MetricPayload;
+import com.yourteam.agent.dto.SystemInfoPayload;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -43,7 +44,8 @@ import java.time.Duration;
  */
 public class MetricSender {
 
-    private static final String METRICS_ENDPOINT = "/api/v1/agent/metrics";
+    private static final String METRICS_ENDPOINT   = "/api/v1/agent/metrics";
+    private static final String REGISTER_ENDPOINT  = "/api/v1/agent/register";
     private static final int HTTP_CREATED = 201;
 
     private final AgentConfig config;
@@ -88,6 +90,34 @@ public class MetricSender {
             System.out.printf("[Sender] OK (201) — recordedAt=%s%n", payload.recordedAt);
         } else {
             System.err.printf("[Sender] Unexpected response %d — body: %s%n",
+                    response.statusCode(), response.body());
+        }
+    }
+
+    /**
+     * Sends system info to PATCH /api/v1/agent/register on startup.
+     * Updates hostname, IP, OS on the backend so the machine record
+     * reflects the real machine instead of placeholder values.
+     */
+    public void register(SystemInfoPayload payload) throws Exception {
+        String json = mapper.writeValueAsString(payload);
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(config.backendUrl + REGISTER_ENDPOINT))
+                .timeout(Duration.ofSeconds(10))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + config.machineToken)
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(json))
+                .build();
+
+        HttpResponse<String> response =
+                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() == 204) {
+            System.out.printf("[Sender] Registered — hostname=%s ip=%s os=%s%n",
+                    payload.hostname, payload.ipAddress, payload.osName);
+        } else {
+            System.err.printf("[Sender] Register failed %d — body: %s%n",
                     response.statusCode(), response.body());
         }
     }

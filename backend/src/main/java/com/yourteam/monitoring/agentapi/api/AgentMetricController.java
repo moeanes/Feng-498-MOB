@@ -3,6 +3,7 @@ package com.yourteam.monitoring.agentapi.api;
 import com.yourteam.monitoring.agentapi.service.AgentMetricService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,5 +24,11 @@ public class AgentMetricController {
     @ResponseStatus(HttpStatus.CREATED)
     public AgentMetricIngestResponse ingestMetric(@Valid @RequestBody AgentMetricIngestRequest request) {
         return agentMetricService.ingestMetric(request);
+    }
+
+    @PatchMapping("/register")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void register(@Valid @RequestBody AgentRegisterRequest request) {
+        agentMetricService.registerMachine(request);
     }
 }

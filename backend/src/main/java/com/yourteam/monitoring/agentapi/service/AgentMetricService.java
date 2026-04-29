@@ -2,6 +2,7 @@ package com.yourteam.monitoring.agentapi.service;
 
 import com.yourteam.monitoring.agentapi.api.AgentMetricIngestRequest;
 import com.yourteam.monitoring.agentapi.api.AgentMetricIngestResponse;
+import com.yourteam.monitoring.agentapi.api.AgentRegisterRequest;
 import com.yourteam.monitoring.machine.domain.Machine;
 import com.yourteam.monitoring.machine.repo.MachineRepository;
 import com.yourteam.monitoring.metric.domain.MetricRecord;
@@ -69,6 +70,31 @@ public class AgentMetricService {
                 saved.getId(),
                 saved.getMachineId(),
                 saved.getRecordedAt()
+        );
+    }
+
+    @Transactional
+    public void registerMachine(AgentRegisterRequest request) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        UUID authenticatedMachineId = (UUID) auth.getPrincipal();
+        if (!authenticatedMachineId.equals(request.machineId())) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Token does not belong to machine: " + request.machineId()
+            );
+        }
+
+        Machine machine = machineRepository.findById(request.machineId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Machine not found: " + request.machineId()
+                ));
+
+        machine.updateSystemInfo(
+                request.hostname(),
+                request.ipAddress(),
+                request.osName(),
+                request.agentVersion()
         );
     }
 }

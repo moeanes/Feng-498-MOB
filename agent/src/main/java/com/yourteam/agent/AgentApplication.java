@@ -2,8 +2,12 @@ package com.yourteam.agent;
 
 import com.yourteam.agent.collector.SystemMetricCollector;
 import com.yourteam.agent.config.AgentConfig;
+import com.yourteam.agent.dto.SystemInfoPayload;
 import com.yourteam.agent.scheduler.MetricScheduler;
 import com.yourteam.agent.sender.MetricSender;
+import oshi.SystemInfo;
+import oshi.hardware.NetworkIF;
+import oshi.software.os.OperatingSystem;
 
 /**
  * Entry point for the monitoring agent.
@@ -52,7 +56,40 @@ public class AgentApplication {
 
         SystemMetricCollector collector = new SystemMetricCollector(config);
         MetricSender          sender    = new MetricSender(config);
-        MetricScheduler       scheduler = new MetricScheduler(collector, sender, config.intervalSeconds);
+
+        // On startup, collect real system info and push it to the backend
+        // so the machine record reflects actual hostname/IP/OS instead of placeholders.
+        try {
+            SystemInfo si = new SystemInfo();
+            OperatingSystem os = si.getOperatingSystem();
+
+            String hostname = os.getNetworkParams().getHostName();
+
+            // Find first non-loopback IPv4 address
+            String ipAddress = "";
+            for (NetworkIF iface : si.getHardware().getNetworkIFs()) {
+                String[] addrs = iface.getIPv4addr();
+                if (addrs.length > 0 && !addrs[0].startsWith("127.")) {
+                    ipAddress = addrs[0];
+                    break;
+                }
+            }
+
+            String osName = os.getFamily() + " " + os.getVersionInfo().getVersion();
+
+            SystemInfoPayload info = new SystemInfoPayload();
+            info.machineId    = config.machineId;
+            info.hostname     = hostname;
+            info.ipAddress    = ipAddress;
+            info.osName       = osName;
+            info.agentVersion = "1.0";
+
+            sender.register(info);
+        } catch (Exception e) {
+            System.err.println("[Agent] Register failed (non-fatal): " + e.getMessage());
+        }
+
+        MetricScheduler scheduler = new MetricScheduler(collector, sender, config.intervalSeconds);
 
         // Graceful shutdown on Ctrl+C or SIGTERM
         Runtime.getRuntime().addShutdownHook(new Thread(scheduler::shutdown, "shutdown-hook"));
