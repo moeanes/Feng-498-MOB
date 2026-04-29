@@ -5,7 +5,7 @@
     "buildCommand": "if [ -d backend ]; then cd backend; fi; ./mvnw -DskipTests package"
   },
   "deploy": {
-    "startCommand": "if [ -f backend/target/monitoring-backend-0.0.1-SNAPSHOT.jar ]; then java -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -jar backend/target/monitoring-backend-0.0.1-SNAPSHOT.jar; else java -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -jar target/monitoring-backend-0.0.1-SNAPSHOT.jar; fi",
+    "startCommand": "if [ -f backend/target/monitoring-backend-0.0.1-SNAPSHOT.jar ]; then java -Xms128m -Xmx384m -jar backend/target/monitoring-backend-0.0.1-SNAPSHOT.jar; else java -Xms128m -Xmx384m -jar target/monitoring-backend-0.0.1-SNAPSHOT.jar; fi",
     "healthcheckPath": "/actuator/health",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",
