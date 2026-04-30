@@ -1,0 +1,24 @@
+<service>
+  <!-- Windows Service kimliği — sc.exe'de görünür isim -->
+  <id>MonitoringAgent</id>
+  <name>Monitoring Agent</name>
+  <description>FENG-498 Machine Monitoring Agent - collects and sends metrics to backend every second</description>
+
+  <!-- Java ile jar'ı çalıştır; %BASE% = bu XML'in bulunduğu klasör -->
+  <executable>java</executable>
+  <arguments>-jar "%BASE%\monitoring-agent.jar"</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+
+  <!-- Servis log dosyaları -->
+  <logpath>%BASE%\logs</logpath>
+  <logmode>rotate</logmode>
+
+  <!-- Crash / hata durumunda otomatik yeniden başlat -->
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="20 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <resetfailure>1 hour</resetfailure>
+
+  <!-- PC açılınca otomatik başlat -->
+  <startmode>Automatic</startmode>
+</service>
