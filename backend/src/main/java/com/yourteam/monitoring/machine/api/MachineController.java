@@ -51,6 +51,11 @@ public class MachineController {
         return machineService.getRecentMetricHistory(machineId);
     }
 
+    @GetMapping("/{machineId}/processes/latest")
+    public List<ProcessMetricResponse> getLatestProcesses(@PathVariable UUID machineId) {
+        return machineService.getLatestProcesses(machineId);
+    }
+
     @GetMapping("/{machineId}/metrics")
     public List<MachineMetricResponse> getMetricHistory(
             @PathVariable UUID machineId,

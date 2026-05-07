@@ -20,6 +20,18 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/main.tsx", "src/app/App.tsx", "src/vite-env.d.ts"],
+  "include": [
+    "src/main.tsx",
+    "src/app/App.tsx",
+    "src/app/AppWrapper.tsx",
+    "src/app/Dashboard.tsx",
+    "src/app/navigation.tsx",
+    "src/app/components/LandingPage.tsx",
+    "src/app/components/LoginPage.tsx",
+    "src/app/components/landing/**/*.tsx",
+    "src/app/components/login/**/*.tsx",
+    "src/app/components/shared/**/*.tsx",
+    "src/vite-env.d.ts"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

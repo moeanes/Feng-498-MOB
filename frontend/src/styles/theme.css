@@ -179,3 +179,80 @@
     line-height: 1.5;
   }
 }
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes metric-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #38bdf8 0%, #34d399 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.hero-grid {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+  background-size: 36px 36px;
+}
+
+.card-hover {
+  transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+  border-color: rgba(56, 189, 248, 0.35);
+  background-color: rgba(17, 24, 39, 0.88);
+}
+
+.focus-ring:focus {
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.24);
+}
+
+.login-panel-bg {
+  background:
+    radial-gradient(circle at 20% 20%, rgba(14, 165, 233, 0.18), transparent 34%),
+    radial-gradient(circle at 80% 80%, rgba(52, 211, 153, 0.12), transparent 34%),
+    #020617;
+}
+
+.metric-bar {
+  transform-origin: left;
+  animation: metric-fill 700ms ease-out both;
+}
+
+.animate-fade-in {
+  animation: fade-in 500ms ease-out both;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 600ms ease-out both;
+}

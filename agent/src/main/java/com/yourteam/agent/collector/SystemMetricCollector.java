@@ -2,6 +2,7 @@ package com.yourteam.agent.collector;
 
 import com.yourteam.agent.config.AgentConfig;
 import com.yourteam.agent.dto.MetricPayload;
+import com.yourteam.agent.dto.ProcessMetricPayload;
 import oshi.SystemInfo;
 import oshi.hardware.CentralProcessor;
 import oshi.hardware.GlobalMemory;
@@ -9,9 +10,12 @@ import oshi.hardware.HardwareAbstractionLayer;
 import oshi.hardware.NetworkIF;
 import oshi.software.os.OSFileStore;
 import oshi.software.os.OperatingSystem;
+import oshi.software.os.OSProcess;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Collects a single metric snapshot from the local OS using OSHI.
@@ -46,8 +50,17 @@ import java.util.List;
  *
  *  Uptime
  *    getSystemUptime() returns OS uptime in seconds directly.
+ *
+ *  Top applications/processes
+ *    OSHI reads the operating system's process table. We group processes by
+ *    name so a multi-process application such as Chrome appears as one row.
+ *    CPU is calculated between collection ticks when a previous process
+ *    snapshot exists. The impact score is a simple CPU/RAM based score for
+ *    ranking; it is not real electrical power usage in watts.
  */
 public class SystemMetricCollector {
+
+    private static final int TOP_PROCESS_LIMIT = 10;
 
     private final AgentConfig config;
 
@@ -64,6 +77,9 @@ public class SystemMetricCollector {
     private long prevNetIn  = 0L;
     private long prevNetOut = 0L;
     private long prevNetTs  = System.currentTimeMillis();
+
+    // Process CPU: keep the previous process snapshot per PID for delta CPU %
+    private Map<Integer, OSProcess> previousProcessesByPid = new HashMap<>();
 
     public SystemMetricCollector(AgentConfig config) {
         this.config = config;
@@ -84,6 +100,7 @@ public class SystemMetricCollector {
         collectDisk(payload);
         collectNetwork(payload);
         collectUptime(payload);
+        collectTopProcesses(payload);
 
         return payload;
     }
@@ -145,8 +162,98 @@ public class SystemMetricCollector {
         p.uptimeSeconds = os.getSystemUptime();
     }
 
+    private void collectTopProcesses(MetricPayload p) {
+        long totalMemory = Math.max(hal.getMemory().getTotal(), 1L);
+        Map<Integer, OSProcess> currentProcessesByPid = new HashMap<>();
+        Map<String, ProcessAccumulator> groupedProcesses = new HashMap<>();
+
+        for (OSProcess process : os.getProcesses()) {
+            int pid = process.getProcessID();
+            currentProcessesByPid.put(pid, process);
+
+            String processName = normalizeProcessName(process.getName(), pid);
+            long ramBytes = Math.max(0L, process.getResidentSetSize());
+            double cpuPercent = calculateProcessCpuPercent(process);
+
+            ProcessAccumulator accumulator = groupedProcesses.computeIfAbsent(
+                    processName,
+                    ProcessAccumulator::new
+            );
+            accumulator.add(pid, cpuPercent, ramBytes);
+        }
+
+        previousProcessesByPid = currentProcessesByPid;
+
+        p.topProcesses = groupedProcesses.values()
+                .stream()
+                .map(accumulator -> accumulator.toPayload(totalMemory))
+                .sorted((left, right) -> {
+                    int impactCompare = Double.compare(right.impactScore, left.impactScore);
+                    if (impactCompare != 0) {
+                        return impactCompare;
+                    }
+                    return Double.compare(right.ramUsageMb, left.ramUsageMb);
+                })
+                .limit(TOP_PROCESS_LIMIT)
+                .toList();
+    }
+
+    private double calculateProcessCpuPercent(OSProcess process) {
+        OSProcess previous = previousProcessesByPid.get(process.getProcessID());
+        double load = previous == null
+                ? process.getProcessCpuLoadCumulative()
+                : process.getProcessCpuLoadBetweenTicks(previous);
+
+        if (Double.isNaN(load) || Double.isInfinite(load)) {
+            return 0.0;
+        }
+        return clamp(load * 100.0);
+    }
+
     /** Ensures a percentage value stays in [0.0, 100.0]. */
     private static double clamp(double value) {
         return Math.min(100.0, Math.max(0.0, value));
+    }
+
+    private static String normalizeProcessName(String rawName, int pid) {
+        if (rawName == null || rawName.isBlank()) {
+            return "unknown-" + pid;
+        }
+        return rawName.trim();
+    }
+
+    private static final class ProcessAccumulator {
+        private final String processName;
+        private int representativePid;
+        private int instanceCount;
+        private double totalCpuUsage;
+        private long totalRamBytes;
+        private long largestRamBytes;
+
+        private ProcessAccumulator(String processName) {
+            this.processName = processName;
+        }
+
+        private void add(int pid, double cpuUsage, long ramBytes) {
+            instanceCount++;
+            totalCpuUsage += cpuUsage;
+            totalRamBytes += ramBytes;
+            if (ramBytes >= largestRamBytes) {
+                largestRamBytes = ramBytes;
+                representativePid = pid;
+            }
+        }
+
+        private ProcessMetricPayload toPayload(long totalMachineMemoryBytes) {
+            ProcessMetricPayload payload = new ProcessMetricPayload();
+            payload.processId = representativePid;
+            payload.processName = processName;
+            payload.instanceCount = instanceCount;
+            payload.cpuUsage = clamp(totalCpuUsage);
+            payload.ramUsageMb = totalRamBytes / 1024.0 / 1024.0;
+            payload.ramUsagePercent = clamp(totalRamBytes * 100.0 / totalMachineMemoryBytes);
+            payload.impactScore = clamp(payload.cpuUsage * 0.7 + payload.ramUsagePercent * 0.3);
+            return payload;
+        }
     }
 }

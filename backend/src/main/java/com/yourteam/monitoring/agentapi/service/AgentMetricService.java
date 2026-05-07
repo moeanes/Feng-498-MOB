@@ -6,7 +6,9 @@ import com.yourteam.monitoring.agentapi.api.AgentRegisterRequest;
 import com.yourteam.monitoring.machine.domain.Machine;
 import com.yourteam.monitoring.machine.repo.MachineRepository;
 import com.yourteam.monitoring.metric.domain.MetricRecord;
+import com.yourteam.monitoring.metric.domain.ProcessMetricRecord;
 import com.yourteam.monitoring.metric.repo.MetricRecordRepository;
+import com.yourteam.monitoring.metric.repo.ProcessMetricRecordRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -14,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -21,13 +24,16 @@ public class AgentMetricService {
 
     private final MachineRepository machineRepository;
     private final MetricRecordRepository metricRecordRepository;
+    private final ProcessMetricRecordRepository processMetricRecordRepository;
 
     public AgentMetricService(
             MachineRepository machineRepository,
-            MetricRecordRepository metricRecordRepository
+            MetricRecordRepository metricRecordRepository,
+            ProcessMetricRecordRepository processMetricRecordRepository
     ) {
         this.machineRepository = machineRepository;
         this.metricRecordRepository = metricRecordRepository;
+        this.processMetricRecordRepository = processMetricRecordRepository;
     }
 
     @Transactional
@@ -65,6 +71,7 @@ public class AgentMetricService {
         );
 
         MetricRecord saved = metricRecordRepository.save(metricRecord);
+        saveProcessMetrics(request, saved);
 
         return new AgentMetricIngestResponse(
                 saved.getId(),
@@ -96,5 +103,30 @@ public class AgentMetricService {
                 request.osName(),
                 request.agentVersion()
         );
+    }
+
+    private void saveProcessMetrics(AgentMetricIngestRequest request, MetricRecord savedMetricRecord) {
+        if (request.topProcesses() == null || request.topProcesses().isEmpty()) {
+            return;
+        }
+
+        List<ProcessMetricRecord> processMetricRecords = request.topProcesses()
+                .stream()
+                .limit(10)
+                .map(process -> ProcessMetricRecord.create(
+                        savedMetricRecord.getId(),
+                        savedMetricRecord.getMachineId(),
+                        savedMetricRecord.getRecordedAt(),
+                        process.processId(),
+                        process.processName(),
+                        process.instanceCount(),
+                        process.cpuUsage(),
+                        process.ramUsageMb(),
+                        process.ramUsagePercent(),
+                        process.impactScore()
+                ))
+                .toList();
+
+        processMetricRecordRepository.saveAll(processMetricRecords);
     }
 }

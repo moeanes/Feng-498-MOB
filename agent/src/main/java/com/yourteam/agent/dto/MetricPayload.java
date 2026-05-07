@@ -1,6 +1,7 @@
 package com.yourteam.agent.dto;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -14,6 +15,7 @@ import java.util.UUID;
  * cpuUsage, ramUsage, diskUsage are percentages in the range [0.0, 100.0].
  * netInKbps and netOutKbps are kilobytes per second (KB/s).
  * uptimeSeconds is the total OS uptime in seconds.
+ * topProcesses contains the highest resource-impact applications/process groups.
  */
 public class MetricPayload {
 
@@ -37,4 +39,7 @@ public class MetricPayload {
 
     /** Total OS uptime in seconds */
     public long uptimeSeconds;
+
+    /** Top applications grouped by process name, sorted by resource impact */
+    public List<ProcessMetricPayload> topProcesses = List.of();
 }

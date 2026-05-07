@@ -2,21 +2,23 @@ package com.yourteam.monitoring.agentapi.api;
 
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
-import jakarta.validation.Valid;
 
-import java.time.Instant;
-import java.util.List;
-import java.util.UUID;
+public record ProcessMetricIngestRequest(
+        @PositiveOrZero
+        Integer processId,
 
-public record AgentMetricIngestRequest(
+        @NotBlank
+        @Size(max = 255)
+        String processName,
+
         @NotNull
-        UUID machineId,
-
-        @NotNull
-        Instant recordedAt,
+        @Positive
+        Integer instanceCount,
 
         @NotNull
         @DecimalMin("0.0")
@@ -24,26 +26,17 @@ public record AgentMetricIngestRequest(
         Double cpuUsage,
 
         @NotNull
-        @DecimalMin("0.0")
-        @DecimalMax("100.0")
-        Double ramUsage,
+        @PositiveOrZero
+        Double ramUsageMb,
 
         @NotNull
         @DecimalMin("0.0")
         @DecimalMax("100.0")
-        Double diskUsage,
+        Double ramUsagePercent,
 
-        @PositiveOrZero
-        Double netInKbps,
-
-        @PositiveOrZero
-        Double netOutKbps,
-
-        @PositiveOrZero
-        Long uptimeSeconds,
-
-        @Valid
-        @Size(max = 20)
-        List<ProcessMetricIngestRequest> topProcesses
+        @NotNull
+        @DecimalMin("0.0")
+        @DecimalMax("100.0")
+        Double impactScore
 ) {
 }

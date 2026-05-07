@@ -19,6 +19,7 @@ public class HomeController {
                         "/api/v1/machines",
                         "/api/v1/machines/{machineId}",
                         "/api/v1/machines/{machineId}/latest",
+                        "/api/v1/machines/{machineId}/processes/latest",
                         "/api/v1/machines/{machineId}/metrics?from=...&to=..."
                 )
         );

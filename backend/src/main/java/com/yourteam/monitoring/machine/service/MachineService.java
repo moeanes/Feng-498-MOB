@@ -3,10 +3,13 @@ package com.yourteam.monitoring.machine.service;
 import com.yourteam.monitoring.machine.api.CreateMachineRequest;
 import com.yourteam.monitoring.machine.api.MachineMetricResponse;
 import com.yourteam.monitoring.machine.api.MachineResponse;
+import com.yourteam.monitoring.machine.api.ProcessMetricResponse;
 import com.yourteam.monitoring.machine.domain.Machine;
 import com.yourteam.monitoring.machine.repo.MachineRepository;
 import com.yourteam.monitoring.metric.domain.MetricRecord;
+import com.yourteam.monitoring.metric.domain.ProcessMetricRecord;
 import com.yourteam.monitoring.metric.repo.MetricRecordRepository;
+import com.yourteam.monitoring.metric.repo.ProcessMetricRecordRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -21,13 +24,16 @@ public class MachineService {
 
     private final MachineRepository machineRepository;
     private final MetricRecordRepository metricRecordRepository;
+    private final ProcessMetricRecordRepository processMetricRecordRepository;
 
     public MachineService(
             MachineRepository machineRepository,
-            MetricRecordRepository metricRecordRepository
+            MetricRecordRepository metricRecordRepository,
+            ProcessMetricRecordRepository processMetricRecordRepository
     ) {
         this.machineRepository = machineRepository;
         this.metricRecordRepository = metricRecordRepository;
+        this.processMetricRecordRepository = processMetricRecordRepository;
     }
 
     public List<MachineResponse> getAllMachines() {
@@ -75,6 +81,17 @@ public class MachineService {
                 .stream()
                 .map(this::toMetricResponse)
                 .toList();
+    }
+
+    public List<ProcessMetricResponse> getLatestProcesses(UUID machineId) {
+        getMachineOrThrow(machineId);
+        return metricRecordRepository.findTopByMachineIdOrderByRecordedAtDesc(machineId)
+                .map(metricRecord -> processMetricRecordRepository
+                        .findByMetricRecordIdOrderByImpactScoreDesc(metricRecord.getId())
+                        .stream()
+                        .map(this::toProcessMetricResponse)
+                        .toList())
+                .orElse(List.of());
     }
 
     @Transactional
@@ -131,6 +148,22 @@ public class MachineService {
                 metricRecord.getNetInKbps(),
                 metricRecord.getNetOutKbps(),
                 metricRecord.getUptimeSeconds()
+        );
+    }
+
+    private ProcessMetricResponse toProcessMetricResponse(ProcessMetricRecord processMetricRecord) {
+        return new ProcessMetricResponse(
+                processMetricRecord.getId(),
+                processMetricRecord.getMetricRecordId(),
+                processMetricRecord.getMachineId(),
+                processMetricRecord.getRecordedAt(),
+                processMetricRecord.getProcessId(),
+                processMetricRecord.getProcessName(),
+                processMetricRecord.getInstanceCount(),
+                processMetricRecord.getCpuUsage(),
+                processMetricRecord.getRamUsageMb(),
+                processMetricRecord.getRamUsagePercent(),
+                processMetricRecord.getImpactScore()
         );
     }
 }
