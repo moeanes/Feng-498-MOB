@@ -3,6 +3,7 @@ package com.yourteam.monitoring.agentapi.service;
 import com.yourteam.monitoring.agentapi.api.AgentMetricIngestRequest;
 import com.yourteam.monitoring.agentapi.api.AgentMetricIngestResponse;
 import com.yourteam.monitoring.agentapi.api.AgentRegisterRequest;
+import com.yourteam.monitoring.alert.service.AlertEvaluationService;
 import com.yourteam.monitoring.machine.domain.Machine;
 import com.yourteam.monitoring.machine.repo.MachineRepository;
 import com.yourteam.monitoring.metric.domain.MetricRecord;
@@ -25,15 +26,18 @@ public class AgentMetricService {
     private final MachineRepository machineRepository;
     private final MetricRecordRepository metricRecordRepository;
     private final ProcessMetricRecordRepository processMetricRecordRepository;
+    private final AlertEvaluationService alertEvaluationService;
 
     public AgentMetricService(
             MachineRepository machineRepository,
             MetricRecordRepository metricRecordRepository,
-            ProcessMetricRecordRepository processMetricRecordRepository
+            ProcessMetricRecordRepository processMetricRecordRepository,
+            AlertEvaluationService alertEvaluationService
     ) {
         this.machineRepository = machineRepository;
         this.metricRecordRepository = metricRecordRepository;
         this.processMetricRecordRepository = processMetricRecordRepository;
+        this.alertEvaluationService = alertEvaluationService;
     }
 
     @Transactional
@@ -72,6 +76,7 @@ public class AgentMetricService {
 
         MetricRecord saved = metricRecordRepository.save(metricRecord);
         saveProcessMetrics(request, saved);
+        alertEvaluationService.evaluate(saved);
 
         return new AgentMetricIngestResponse(
                 saved.getId(),

@@ -1,19 +1,18 @@
 import { useState, useEffect } from 'react';
 import { Activity, Cpu, HardDrive, Network, Clock, Server, AlertCircle, Zap, LogOut } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { apiFetch, clearAuthToken, UnauthorizedError } from './api';
 import { useNavigate } from './navigation';
-
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
 interface Machine {
   id: string;
   name: string;
-  hostname: string;
-  ipAddress: string;
-  osName: string;
-  agentVersion: string;
+  hostname: string | null;
+  ipAddress: string | null;
+  osName: string | null;
+  agentVersion: string | null;
   status: 'ONLINE' | 'OFFLINE';
-  lastSeen: string;
+  lastSeen: string | null;
   createdAt: string;
 }
 
@@ -50,6 +49,49 @@ interface ProcessMetric {
   ramUsagePercent: number;
   impactScore: number;
 }
+
+interface ThresholdSettings {
+  cpuWarning: number;
+  cpuCritical: number;
+  ramWarning: number;
+  ramCritical: number;
+  diskWarning: number;
+  diskCritical: number;
+  staleSeconds: number;
+}
+
+type AlertSeverity = 'WARNING' | 'CRITICAL';
+type MachineStatusView = 'healthy' | 'warning' | 'critical' | 'offline';
+type FilterMode = 'ALL' | 'ONLINE' | 'OFFLINE' | 'WINDOWS' | 'LINUX' | 'HIGH_CPU' | 'HIGH_RAM';
+
+interface ActiveAlert {
+  id: string;
+  machineName: string;
+  severity: AlertSeverity;
+  metric: string;
+  value: string;
+  message: string;
+}
+
+const DEFAULT_THRESHOLDS: ThresholdSettings = {
+  cpuWarning: 70,
+  cpuCritical: 85,
+  ramWarning: 75,
+  ramCritical: 90,
+  diskWarning: 80,
+  diskCritical: 90,
+  staleSeconds: 300,
+};
+
+const DEMO_THRESHOLDS: ThresholdSettings = {
+  cpuWarning: 45,
+  cpuCritical: 60,
+  ramWarning: 55,
+  ramCritical: 70,
+  diskWarning: 50,
+  diskCritical: 65,
+  staleSeconds: 1800,
+};
 
 const formatUptime = (seconds: number) => {
   const days = Math.floor(seconds / 86400);
@@ -89,28 +131,82 @@ const getImpactColor = (impactScore: number) => {
   return 'text-green-400 bg-green-500/10 border-green-500/30';
 };
 
+const loadStoredThresholds = (): ThresholdSettings => {
+  try {
+    const stored = window.localStorage.getItem('monitoring-thresholds');
+    if (!stored) return DEFAULT_THRESHOLDS;
+
+    const parsed = JSON.parse(stored) as Partial<ThresholdSettings>;
+    return { ...DEFAULT_THRESHOLDS, ...parsed };
+  } catch {
+    return DEFAULT_THRESHOLDS;
+  }
+};
+
+const formatAge = (seconds: number | null) => {
+  if (seconds === null) return 'No data yet';
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+};
+
+const getOperatingSystemGroup = (machine: Machine) => {
+  const os = machine.osName?.toLowerCase() ?? '';
+  if (os.includes('windows')) return 'WINDOWS';
+  if (os.includes('linux') || os.includes('ubuntu') || os.includes('debian') || os.includes('fedora')) return 'LINUX';
+  return 'OTHER';
+};
+
+const getAlertColor = (severity: AlertSeverity) => {
+  return severity === 'CRITICAL'
+    ? 'border-red-500/40 bg-red-500/10 text-red-300'
+    : 'border-yellow-500/40 bg-yellow-500/10 text-yellow-300';
+};
+
 export default function Dashboard() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [metrics, setMetrics] = useState<Record<string, MachineMetrics>>({});
   const [processMetrics, setProcessMetrics] = useState<Record<string, ProcessMetric[]>>({});
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterMode>('ALL');
+  const [showSettings, setShowSettings] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
+  const [thresholds, setThresholds] = useState<ThresholdSettings>(() => loadStoredThresholds());
   const navigate = useNavigate();
+
+  const handleRequestError = (error: unknown) => {
+    if (error instanceof UnauthorizedError) {
+      navigate('/login');
+      return;
+    }
+    console.error(error);
+  };
+
+  useEffect(() => {
+    window.localStorage.setItem('monitoring-thresholds', JSON.stringify(thresholds));
+  }, [thresholds]);
 
   useEffect(() => {
     const fetchMachines = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/v1/machines`);
+        const response = await apiFetch('/api/v1/machines');
         if (!response.ok) {
           throw new Error('Failed to fetch machines');
         }
         const data: Machine[] = await response.json();
         setMachines(data);
       } catch (error) {
-        console.error(error);
+        handleRequestError(error);
       }
     };
 
     fetchMachines();
+    const interval = setInterval(fetchMachines, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -120,7 +216,7 @@ export default function Dashboard() {
       await Promise.all(
         machines.map(async (machine) => {
           try {
-            const res = await fetch(`${API_BASE_URL}/api/v1/machines/${machine.id}/metrics/history`);
+            const res = await apiFetch(`/api/v1/machines/${machine.id}/metrics/history`);
             if (!res.ok) return;
             const records: Array<{
               machineId: string;
@@ -160,7 +256,7 @@ export default function Dashboard() {
               },
             }));
           } catch (err) {
-            console.error('Failed to fetch metrics for', machine.id, err);
+            handleRequestError(err);
           }
         })
       );
@@ -176,7 +272,7 @@ export default function Dashboard() {
 
     const fetchLatestProcesses = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/v1/machines/${selectedMachine}/processes/latest`);
+        const response = await apiFetch(`/api/v1/machines/${selectedMachine}/processes/latest`);
         if (!response.ok) return;
         const data: ProcessMetric[] = await response.json();
         setProcessMetrics(prev => ({
@@ -184,7 +280,7 @@ export default function Dashboard() {
           [selectedMachine]: data,
         }));
       } catch (error) {
-        console.error('Failed to fetch process metrics for', selectedMachine, error);
+        handleRequestError(error);
       }
     };
 
@@ -193,28 +289,149 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [selectedMachine]);
 
-  const getOverallStatus = (machine: Machine) => {
-    const machineMetrics = metrics[machine.id];
-    if (!machineMetrics) return 'healthy';
+  const effectiveThresholds = demoMode ? DEMO_THRESHOLDS : thresholds;
 
-    const issues: string[] = [];
-    if (machineMetrics.cpuUsage >= 85) issues.push('critical');
-    else if (machineMetrics.cpuUsage >= 70) issues.push('warning');
-    if (machineMetrics.ramUsage >= 90) issues.push('critical');
-    else if (machineMetrics.ramUsage >= 75) issues.push('warning');
-    if (machineMetrics.diskUsage >= 90) issues.push('critical');
-    else if (machineMetrics.diskUsage >= 80) issues.push('warning');
+  const getLatestTimestamp = (machine: Machine) => {
+    return metrics[machine.id]?.recordedAt ?? machine.lastSeen ?? null;
+  };
+
+  const getDataAgeSeconds = (machine: Machine) => {
+    const timestamp = getLatestTimestamp(machine);
+    if (!timestamp) return null;
+
+    const age = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000);
+    return Number.isFinite(age) ? Math.max(age, 0) : null;
+  };
+
+  const isMachineStale = (machine: Machine) => {
+    const age = getDataAgeSeconds(machine);
+    return age === null || age > effectiveThresholds.staleSeconds;
+  };
+
+  const isMachineOnline = (machine: Machine) => {
+    return machine.status === 'ONLINE' && !isMachineStale(machine);
+  };
+
+  const getOverallStatus = (machine: Machine): MachineStatusView => {
+    const machineMetrics = metrics[machine.id];
+    if (!isMachineOnline(machine)) return 'offline';
+    if (!machineMetrics) return 'offline';
+
+    const issues: MachineStatusView[] = [];
+    if (machineMetrics.cpuUsage >= effectiveThresholds.cpuCritical) issues.push('critical');
+    else if (machineMetrics.cpuUsage >= effectiveThresholds.cpuWarning) issues.push('warning');
+    if (machineMetrics.ramUsage >= effectiveThresholds.ramCritical) issues.push('critical');
+    else if (machineMetrics.ramUsage >= effectiveThresholds.ramWarning) issues.push('warning');
+    if (machineMetrics.diskUsage >= effectiveThresholds.diskCritical) issues.push('critical');
+    else if (machineMetrics.diskUsage >= effectiveThresholds.diskWarning) issues.push('warning');
 
     if (issues.includes('critical')) return 'critical';
     if (issues.includes('warning')) return 'warning';
     return 'healthy';
   };
 
+  const createMetricAlert = (
+    machine: Machine,
+    metricName: string,
+    value: number,
+    warning: number,
+    critical: number
+  ): ActiveAlert | null => {
+    if (!isMachineOnline(machine)) return null;
+    if (value < warning) return null;
+
+    const severity: AlertSeverity = value >= critical ? 'CRITICAL' : 'WARNING';
+    const threshold = severity === 'CRITICAL' ? critical : warning;
+    return {
+      id: `${machine.id}-${metricName}-${severity}`,
+      machineName: machine.name,
+      severity,
+      metric: metricName,
+      value: `${value.toFixed(1)}%`,
+      message: `${machine.name} ${metricName} is ${value.toFixed(1)}%, above ${threshold}% ${severity.toLowerCase()} threshold.`,
+    };
+  };
+
+  const activeAlerts = machines.flatMap(machine => {
+    const machineMetrics = metrics[machine.id];
+    const alerts: ActiveAlert[] = [];
+
+    if (!isMachineOnline(machine)) {
+      alerts.push({
+        id: `${machine.id}-stale`,
+        machineName: machine.name,
+        severity: 'CRITICAL',
+        metric: 'Data Freshness',
+        value: formatAge(getDataAgeSeconds(machine)),
+        message: `${machine.name} has not sent fresh data within ${effectiveThresholds.staleSeconds} seconds.`,
+      });
+      return alerts;
+    }
+
+    if (!machineMetrics) return alerts;
+
+    [
+      createMetricAlert(machine, 'CPU', machineMetrics.cpuUsage, effectiveThresholds.cpuWarning, effectiveThresholds.cpuCritical),
+      createMetricAlert(machine, 'RAM', machineMetrics.ramUsage, effectiveThresholds.ramWarning, effectiveThresholds.ramCritical),
+      createMetricAlert(machine, 'Disk', machineMetrics.diskUsage, effectiveThresholds.diskWarning, effectiveThresholds.diskCritical),
+    ].forEach(alert => {
+      if (alert) alerts.push(alert);
+    });
+
+    return alerts;
+  });
+
+  const onlineCount = machines.filter(isMachineOnline).length;
+  const staleCount = machines.length - onlineCount;
+  const metricValues = Object.values(metrics);
+  const averageCpu = metricValues.length > 0
+    ? metricValues.reduce((sum, metric) => sum + metric.cpuUsage, 0) / metricValues.length
+    : 0;
+  const averageRam = metricValues.length > 0
+    ? metricValues.reduce((sum, metric) => sum + metric.ramUsage, 0) / metricValues.length
+    : 0;
+
+  const filteredMachines = machines.filter(machine => {
+    const machineMetrics = metrics[machine.id];
+    switch (filter) {
+      case 'ONLINE':
+        return isMachineOnline(machine);
+      case 'OFFLINE':
+        return !isMachineOnline(machine);
+      case 'WINDOWS':
+        return getOperatingSystemGroup(machine) === 'WINDOWS';
+      case 'LINUX':
+        return getOperatingSystemGroup(machine) === 'LINUX';
+      case 'HIGH_CPU':
+        return (machineMetrics?.cpuUsage ?? 0) >= effectiveThresholds.cpuWarning;
+      case 'HIGH_RAM':
+        return (machineMetrics?.ramUsage ?? 0) >= effectiveThresholds.ramWarning;
+      default:
+        return true;
+    }
+  });
+
+  const filterOptions: Array<{ mode: FilterMode; label: string; count: number }> = [
+    { mode: 'ALL', label: 'All', count: machines.length },
+    { mode: 'ONLINE', label: 'Online', count: onlineCount },
+    { mode: 'OFFLINE', label: 'Stale/Offline', count: staleCount },
+    { mode: 'WINDOWS', label: 'Windows', count: machines.filter(machine => getOperatingSystemGroup(machine) === 'WINDOWS').length },
+    { mode: 'LINUX', label: 'Linux', count: machines.filter(machine => getOperatingSystemGroup(machine) === 'LINUX').length },
+    { mode: 'HIGH_CPU', label: 'High CPU', count: machines.filter(machine => (metrics[machine.id]?.cpuUsage ?? 0) >= effectiveThresholds.cpuWarning).length },
+    { mode: 'HIGH_RAM', label: 'High RAM', count: machines.filter(machine => (metrics[machine.id]?.ramUsage ?? 0) >= effectiveThresholds.ramWarning).length },
+  ];
+
   const displayedMachine = selectedMachine
     ? machines.find(m => m.id === selectedMachine)
     : null;
   const displayedMachineMetrics = displayedMachine ? metrics[displayedMachine.id] : null;
   const displayedProcessMetrics = displayedMachine ? processMetrics[displayedMachine.id] ?? [] : [];
+
+  const updateThreshold = (field: keyof ThresholdSettings, value: string) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return;
+    setThresholds(prev => ({ ...prev, [field]: parsed }));
+  };
 
   return (
     <div className="size-full bg-neutral-950 text-white overflow-auto">
@@ -228,7 +445,10 @@ export default function Dashboard() {
             </div>
           </div>
           <button
-            onClick={() => navigate('/')}
+            onClick={() => {
+              clearAuthToken();
+              navigate('/login');
+            }}
             className="flex items-center gap-2 px-4 py-2 bg-neutral-900 border border-neutral-800 rounded-md hover:bg-neutral-800 transition-colors text-sm text-neutral-300 hover:text-white"
           >
             <LogOut className="w-4 h-4" />
@@ -236,12 +456,167 @@ export default function Dashboard() {
           </button>
         </div>
 
+        {/* Health Summary */}
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-4 mb-6">
+          <div className="bg-neutral-900 border border-neutral-800 p-4">
+            <div className="text-xs text-neutral-500 mb-2">Total Machines</div>
+            <div className="text-2xl text-white">{machines.length}</div>
+          </div>
+          <div className="bg-neutral-900 border border-neutral-800 p-4">
+            <div className="text-xs text-neutral-500 mb-2">Online</div>
+            <div className="text-2xl text-green-400">{onlineCount}</div>
+          </div>
+          <div className="bg-neutral-900 border border-neutral-800 p-4">
+            <div className="text-xs text-neutral-500 mb-2">Stale / Offline</div>
+            <div className="text-2xl text-neutral-300">{staleCount}</div>
+          </div>
+          <div className="bg-neutral-900 border border-neutral-800 p-4">
+            <div className="text-xs text-neutral-500 mb-2">Active Alerts</div>
+            <div className={`text-2xl ${activeAlerts.length > 0 ? 'text-red-400' : 'text-green-400'}`}>
+              {activeAlerts.length}
+            </div>
+          </div>
+          <div className="bg-neutral-900 border border-neutral-800 p-4">
+            <div className="text-xs text-neutral-500 mb-2">Average CPU</div>
+            <div className="text-2xl text-white">{averageCpu.toFixed(0)}%</div>
+          </div>
+          <div className="bg-neutral-900 border border-neutral-800 p-4">
+            <div className="text-xs text-neutral-500 mb-2">Average RAM</div>
+            <div className="text-2xl text-white">{averageRam.toFixed(0)}%</div>
+          </div>
+        </div>
+
+        {/* Controls */}
+        <div className="bg-neutral-900 border border-neutral-800 p-4 mb-6">
+          <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+            <div>
+              <div className="text-sm text-neutral-300 mb-2">Dashboard Filters</div>
+              <div className="flex flex-wrap gap-2">
+                {filterOptions.map(option => (
+                  <button
+                    key={option.mode}
+                    onClick={() => setFilter(option.mode)}
+                    className={`px-3 py-2 border text-xs transition-colors ${
+                      filter === option.mode
+                        ? 'border-blue-500 bg-blue-500/10 text-blue-300'
+                        : 'border-neutral-800 bg-neutral-950 text-neutral-400 hover:text-white hover:border-neutral-700'
+                    }`}
+                  >
+                    {option.label} <span className="text-neutral-500">{option.count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setDemoMode(prev => !prev)}
+                className={`px-4 py-2 border text-sm transition-colors ${
+                  demoMode
+                    ? 'border-yellow-500/50 bg-yellow-500/10 text-yellow-300'
+                    : 'border-neutral-800 bg-neutral-950 text-neutral-400 hover:text-white hover:border-neutral-700'
+                }`}
+              >
+                {demoMode ? 'Demo Alerts On' : 'Demo Alerts Off'}
+              </button>
+              <button
+                onClick={() => setShowSettings(prev => !prev)}
+                className="px-4 py-2 border border-neutral-800 bg-neutral-950 text-sm text-neutral-300 hover:text-white hover:border-neutral-700 transition-colors"
+              >
+                Threshold Settings
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Threshold Settings */}
+        {showSettings && (
+          <div className="bg-neutral-900 border border-neutral-800 p-6 mb-6">
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <h2 className="text-lg mb-1">Threshold Settings</h2>
+                <p className="text-sm text-neutral-500">
+                  These settings drive the dashboard alerts and filters. For now they are saved in this browser.
+                </p>
+              </div>
+              <button
+                onClick={() => setThresholds(DEFAULT_THRESHOLDS)}
+                className="text-sm text-neutral-400 hover:text-white"
+              >
+                Reset defaults
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              {[
+                { key: 'cpuWarning', label: 'CPU Warning %', max: 100 },
+                { key: 'cpuCritical', label: 'CPU Critical %', max: 100 },
+                { key: 'ramWarning', label: 'RAM Warning %', max: 100 },
+                { key: 'ramCritical', label: 'RAM Critical %', max: 100 },
+                { key: 'diskWarning', label: 'Disk Warning %', max: 100 },
+                { key: 'diskCritical', label: 'Disk Critical %', max: 100 },
+                { key: 'staleSeconds', label: 'Offline After Seconds', max: 3600 },
+              ].map(input => (
+                <label key={input.key} className="block">
+                  <span className="block text-xs text-neutral-500 mb-2">{input.label}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={input.max}
+                    value={thresholds[input.key as keyof ThresholdSettings]}
+                    onChange={event => updateThreshold(input.key as keyof ThresholdSettings, event.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Active Alerts */}
+        <div className="bg-neutral-900 border border-neutral-800 p-6 mb-8">
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div>
+              <div className="flex items-center gap-2 text-neutral-300 mb-1">
+                <AlertCircle className="w-4 h-4 text-red-400" />
+                <h2 className="text-lg">Active Alerts</h2>
+              </div>
+              <p className="text-sm text-neutral-500">
+                Alerts are calculated from latest metric values using the current threshold settings.
+              </p>
+            </div>
+            <div className="text-xs text-neutral-500">
+              Stale limit: {effectiveThresholds.staleSeconds}s
+            </div>
+          </div>
+
+          {activeAlerts.length > 0 ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {activeAlerts.map(alert => (
+                <div key={alert.id} className={`border p-4 ${getAlertColor(alert.severity)}`}>
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="text-sm font-semibold">{alert.machineName}</div>
+                    <div className="text-xs">{alert.severity}</div>
+                  </div>
+                  <div className="text-xs text-neutral-400 mb-1">{alert.metric}: {alert.value}</div>
+                  <div className="text-sm">{alert.message}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="border border-dashed border-neutral-800 p-6 text-center text-sm text-neutral-500">
+              No active alerts with the current threshold settings.
+            </div>
+          )}
+        </div>
+
         {/* Overview Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
-          {machines.map(machine => {
+          {filteredMachines.map(machine => {
             const status = getOverallStatus(machine);
             const isSelected = selectedMachine === machine.id;
             const machineMetrics = metrics[machine.id];
+            const ageSeconds = getDataAgeSeconds(machine);
 
             return (
               <button
@@ -261,6 +636,7 @@ export default function Dashboard() {
                   {status === 'critical' && <AlertCircle className="w-4 h-4 text-red-500" />}
                   {status === 'warning' && <AlertCircle className="w-4 h-4 text-yellow-500" />}
                   {status === 'healthy' && <div className="w-2 h-2 rounded-full bg-green-500" />}
+                  {status === 'offline' && <div className="w-2 h-2 rounded-full bg-neutral-500" />}
                 </div>
 
                 <div className="mb-4 flex flex-wrap gap-2 text-xs">
@@ -270,24 +646,27 @@ export default function Dashboard() {
                   <span className="border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-500">
                     Host: {displayValue(machine.hostname)}
                   </span>
+                  <span className="border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-500">
+                    Seen: {formatAge(ageSeconds)}
+                  </span>
                 </div>
 
                 <div className="grid grid-cols-3 gap-3 text-xs">
                   <div>
                     <div className="text-neutral-500 mb-1">CPU</div>
-                    <div className={getStatusColor(machineMetrics?.cpuUsage ?? 0, { warning: 70, critical: 85 })}>
+                    <div className={getStatusColor(machineMetrics?.cpuUsage ?? 0, { warning: effectiveThresholds.cpuWarning, critical: effectiveThresholds.cpuCritical })}>
                       {(machineMetrics?.cpuUsage ?? 0).toFixed(0)}%
                     </div>
                   </div>
                   <div>
                     <div className="text-neutral-500 mb-1">RAM</div>
-                    <div className={getStatusColor(machineMetrics?.ramUsage ?? 0, { warning: 75, critical: 90 })}>
+                    <div className={getStatusColor(machineMetrics?.ramUsage ?? 0, { warning: effectiveThresholds.ramWarning, critical: effectiveThresholds.ramCritical })}>
                       {(machineMetrics?.ramUsage ?? 0).toFixed(0)}%
                     </div>
                   </div>
                   <div>
                     <div className="text-neutral-500 mb-1">Disk</div>
-                    <div className={getStatusColor(machineMetrics?.diskUsage ?? 0, { warning: 80, critical: 90 })}>
+                    <div className={getStatusColor(machineMetrics?.diskUsage ?? 0, { warning: effectiveThresholds.diskWarning, critical: effectiveThresholds.diskCritical })}>
                       {(machineMetrics?.diskUsage ?? 0).toFixed(0)}%
                     </div>
                   </div>
@@ -297,6 +676,12 @@ export default function Dashboard() {
           })}
         </div>
 
+        {filteredMachines.length === 0 && (
+          <div className="bg-neutral-900 border border-neutral-800 p-8 mb-8 text-center text-neutral-500">
+            No machines match the selected filter.
+          </div>
+        )}
+
         {/* Detailed View */}
         {displayedMachine && displayedMachineMetrics ? (
           <div className="space-y-6">
@@ -304,7 +689,7 @@ export default function Dashboard() {
               <div>
                 <h2 className="text-xl mb-1">{displayedMachine.name}</h2>
                 <div className="text-sm text-neutral-400">
-                  Last updated: {new Date(displayedMachineMetrics.recordedAt).toLocaleTimeString()}
+                  Last updated: {new Date(displayedMachineMetrics.recordedAt).toLocaleTimeString()} ({formatAge(getDataAgeSeconds(displayedMachine))})
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2 text-xs">
                   <span className="border border-neutral-800 bg-neutral-900 px-2 py-1 text-neutral-300">
@@ -314,7 +699,13 @@ export default function Dashboard() {
                     Hostname: {displayValue(displayedMachine.hostname)}
                   </span>
                   <span className="border border-neutral-800 bg-neutral-900 px-2 py-1 text-neutral-400">
+                    IP: {displayValue(displayedMachine.ipAddress)}
+                  </span>
+                  <span className="border border-neutral-800 bg-neutral-900 px-2 py-1 text-neutral-400">
                     Agent: {displayValue(displayedMachine.agentVersion)}
+                  </span>
+                  <span className="border border-neutral-800 bg-neutral-900 px-2 py-1 text-neutral-400">
+                    Status: {isMachineOnline(displayedMachine) ? 'Online' : 'Stale or offline'}
                   </span>
                 </div>
               </div>
@@ -333,7 +724,7 @@ export default function Dashboard() {
                   <Cpu className="w-4 h-4" />
                   <span>CPU</span>
                 </div>
-                <div className={`text-4xl mb-1 ${getStatusColor(displayedMachineMetrics.cpuUsage, { warning: 70, critical: 85 })}`}>
+                <div className={`text-4xl mb-1 ${getStatusColor(displayedMachineMetrics.cpuUsage, { warning: effectiveThresholds.cpuWarning, critical: effectiveThresholds.cpuCritical })}`}>
                   {displayedMachineMetrics.cpuUsage.toFixed(1)}%
                 </div>
               </div>
@@ -343,7 +734,7 @@ export default function Dashboard() {
                   <Activity className="w-4 h-4" />
                   <span>RAM</span>
                 </div>
-                <div className={`text-4xl mb-1 ${getStatusColor(displayedMachineMetrics.ramUsage, { warning: 75, critical: 90 })}`}>
+                <div className={`text-4xl mb-1 ${getStatusColor(displayedMachineMetrics.ramUsage, { warning: effectiveThresholds.ramWarning, critical: effectiveThresholds.ramCritical })}`}>
                   {displayedMachineMetrics.ramUsage.toFixed(1)}%
                 </div>
               </div>
@@ -353,7 +744,7 @@ export default function Dashboard() {
                   <HardDrive className="w-4 h-4" />
                   <span>Disk Space</span>
                 </div>
-                <div className={`text-4xl mb-1 ${getStatusColor(displayedMachineMetrics.diskUsage, { warning: 80, critical: 90 })}`}>
+                <div className={`text-4xl mb-1 ${getStatusColor(displayedMachineMetrics.diskUsage, { warning: effectiveThresholds.diskWarning, critical: effectiveThresholds.diskCritical })}`}>
                   {displayedMachineMetrics.diskUsage.toFixed(1)}%
                 </div>
               </div>

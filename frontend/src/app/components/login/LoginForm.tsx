@@ -1,29 +1,16 @@
 "use client";
 
 import { useState, type ChangeEvent, type FormEvent } from "react";
+import { login } from "../../api";
 import { Link, useNavigate } from "../../navigation";
 import { PulseWatchLogo } from "../shared/Logo";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AUTH INTEGRATION NOTE
 // ─────────────────────────────────────────────────────────────────────────────
-// This component currently implements MOCK authentication.
-// Any non-empty email + password combination is accepted.
-//
-// TO INTEGRATE FIREBASE AUTH LATER:
-//   1. Install: npm install firebase
-//   2. Create: src/lib/firebase.ts  (initializeApp + getAuth)
-//   3. Replace the mock block below (marked with TODO: FIREBASE) with:
-//        import { signInWithEmailAndPassword } from "firebase/auth";
-//        import { auth } from "@/lib/firebase";
-//        await signInWithEmailAndPassword(auth, email, password);
-//   4. Handle FirebaseError codes (auth/user-not-found, auth/wrong-password, etc.)
-//   5. Remove the demo-mode banner once real auth is active.
-//
-// ROUTE PROTECTION NOTE:
-//   After integrating Firebase, add a middleware or layout-level auth check
-//   at src/middleware.ts to protect /dashboard and any other authenticated routes.
-//   Check the Firebase ID token or session cookie and redirect to /login if absent.
+// The form authenticates against the Spring Boot backend and stores the JWT
+// token in localStorage. Dashboard API requests read that token and send it in
+// the Authorization header.
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface FormState {
@@ -72,24 +59,11 @@ export default function LoginForm() {
     setApiError(null);
 
     try {
-      // ── TODO: FIREBASE — Replace this block with Firebase auth ──────────
-      // MOCK AUTH: Simulate a short network delay, then accept any credentials.
-      // This block should be completely replaced when integrating Firebase.
-      await new Promise<void>((resolve) => setTimeout(resolve, 800));
-      // ── END MOCK AUTH ───────────────────────────────────────────────────
-
-      // On successful sign-in, redirect to the dashboard.
-      // This navigate call stays the same after Firebase integration —
-      // just ensure it runs after a confirmed successful auth, not before.
+      await login(form.email.trim(), form.password);
       navigate("/dashboard");
 
-    } catch {
-      // ── TODO: FIREBASE — Map Firebase error codes to user-friendly messages ──
-      // Example after Firebase integration:
-      //   if (err.code === "auth/user-not-found") setApiError("No account found with this email.");
-      //   else if (err.code === "auth/wrong-password") setApiError("Incorrect password.");
-      //   else setApiError("Sign in failed. Please try again.");
-      setApiError("An unexpected error occurred. Please try again.");
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : "Sign in failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -114,17 +88,16 @@ export default function LoginForm() {
         </p>
       </div>
 
-      {/* ── Demo mode banner ────────────────────────────────────── */}
-      {/* TODO: FIREBASE — Remove this banner once real authentication is active */}
+      {/* ── Demo credentials banner ──────────────────────────────── */}
       <div className="mb-6 rounded-xl border border-sky-500/25 bg-sky-500/10 p-4 flex gap-3">
         <svg className="w-4 h-4 text-sky-400 mt-0.5 shrink-0" viewBox="0 0 16 16" fill="currentColor">
           <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm.75 10.5h-1.5v-4.5h1.5v4.5zm0-6h-1.5v-1.5h1.5v1.5z"/>
         </svg>
         <div>
-          <p className="text-xs font-semibold text-sky-300 mb-0.5">Demo Mode</p>
+          <p className="text-xs font-semibold text-sky-300 mb-0.5">Backend JWT Login</p>
           <p className="text-xs text-sky-400/80 leading-relaxed">
-            Authentication is currently in demo mode. Enter any non-empty email
-            and password to access the dashboard.
+            For the local demo, use username <span className="font-mono text-sky-200">admin</span> and
+            password <span className="font-mono text-sky-200">admin123</span>.
           </p>
         </div>
       </div>
@@ -154,7 +127,7 @@ export default function LoginForm() {
             autoComplete="username email"
             value={form.email}
             onChange={handleChange}
-            placeholder="you@example.com"
+            placeholder="admin"
             className={`w-full px-4 py-2.5 rounded-xl bg-white/[0.06] border text-white text-sm placeholder-slate-600 transition-all duration-200 focus-ring focus:outline-none ${
               errors.email
                 ? "border-rose-500/60 bg-rose-500/5"
