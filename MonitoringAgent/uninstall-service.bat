@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableDelayedExpansion
-title Monitoring Agent - Service Uninstaller
+title Monitoring Agent Windows - Service Uninstaller
 
 :: ─────────────────────────────────────────────────────────────
 :: 1. Yönetici yetkisi kontrolü
@@ -21,7 +21,7 @@ set "SERVICE_ID=MonitoringAgent"
 
 echo.
 echo  ================================================
-echo   Monitoring Agent - Windows Service Kaldirma
+echo   Monitoring Agent Windows - Servis Kaldirma
 echo  ================================================
 echo.
 

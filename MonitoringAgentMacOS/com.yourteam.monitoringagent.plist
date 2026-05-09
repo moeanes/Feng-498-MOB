@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Launchd servis kimliği -->
+    <key>Label</key>
+    <string>com.yourteam.monitoringagent</string>
+
+    <!-- Çalıştırılacak komut: java -jar /Library/MonitoringAgent/monitoring-agent.jar -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/java</string>
+        <string>-jar</string>
+        <string>/Library/MonitoringAgent/monitoring-agent.jar</string>
+    </array>
+
+    <!-- Çalışma dizini — agent.properties burada aranır -->
+    <key>WorkingDirectory</key>
+    <string>/Library/MonitoringAgent</string>
+
+    <!-- Mac açılınca otomatik başlat -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Crash olursa otomatik yeniden başlat -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Log dosyaları -->
+    <key>StandardOutPath</key>
+    <string>/Library/MonitoringAgent/logs/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Library/MonitoringAgent/logs/stderr.log</string>
+</dict>
+</plist>
