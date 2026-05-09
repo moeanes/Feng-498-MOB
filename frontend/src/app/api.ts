@@ -61,3 +61,21 @@ export const apiFetch = async (path: string, init: RequestInit = {}) => {
 
   return response;
 };
+
+export const createMachine = async (name: string) => {
+  const response = await apiFetch('/api/v1/machines', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) throw new Error('Failed to create machine');
+  return response.json() as Promise<{ id: string; name: string }>;
+};
+
+export const issueToken = async (machineId: string) => {
+  const response = await apiFetch(`/api/v1/machines/${machineId}/tokens`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error('Failed to issue token');
+  return response.json() as Promise<{ machineId: string; token: string }>;
+};
