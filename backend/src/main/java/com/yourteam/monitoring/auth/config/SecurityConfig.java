@@ -88,8 +88,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                         // Agent metric ingest — machine token auth enforced by filter
                         .requestMatchers("/api/v1/agent/**").hasRole("AGENT")
-                        .requestMatchers(HttpMethod.POST, "/api/v1/machines").hasRole("ADMIN")
-                        .requestMatchers("/api/v1/machines/*/tokens").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/machines").authenticated()
+                        .requestMatchers("/api/v1/machines/*/tokens").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/alert-rules", "/api/v1/alert-rules/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/alert-rules", "/api/v1/alert-rules/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/alert-rules", "/api/v1/alert-rules/**").hasRole("ADMIN")
