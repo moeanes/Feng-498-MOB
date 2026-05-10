@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Activity, Cpu, HardDrive, Network, Clock, Server, AlertCircle, Zap, LogOut, Plus, Copy, Check, Trash2 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, AreaChart, Area } from 'recharts';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, AreaChart, Area } from 'recharts';
 import { apiFetch, clearAuthToken, UnauthorizedError, createMachine, issueToken, deleteMachine } from './api';
 import { useNavigate } from './navigation';
 
