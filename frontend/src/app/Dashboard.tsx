@@ -31,8 +31,8 @@ interface MachineMetrics {
     cpu: number;
     ram: number;
     disk: number;
-    netIn: number;
-    netOut: number;
+    netIn: number | null;
+    netOut: number | null;
   }>;
 }
 
