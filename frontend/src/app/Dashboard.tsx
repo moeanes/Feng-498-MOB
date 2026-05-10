@@ -284,7 +284,7 @@ export default function Dashboard() {
             // Keep last 60 points for a clean rolling window
             const window = records.slice(-60);
             const history = window.map(r => ({
-              time: new Date(r.recordedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+              time: new Date(r.recordedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
               timestamp: new Date(r.recordedAt).getTime(),
               cpu: r.cpuUsage,
               ram: r.ramUsage,
@@ -1076,52 +1076,26 @@ export default function Dashboard() {
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
-                    <XAxis dataKey="time" stroke="#525252" tick={{ fill: '#737373', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" minTickGap={60} />
+                    <XAxis
+                      dataKey="time"
+                      stroke="#525252"
+                      tick={{ fill: '#737373', fontSize: 11 }}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                      minTickGap={60}
+                      tickFormatter={(v: string) => v.slice(0, 5)}
+                    />
                     <YAxis stroke="#525252" tick={{ fill: '#737373', fontSize: 11 }} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} width={38} />
                     <Tooltip
                       contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #404040', borderRadius: '6px', fontSize: 12 }}
                       labelStyle={{ color: '#a3a3a3', marginBottom: 4 }}
                       itemStyle={{ color: '#e5e5e5' }}
                       formatter={(value: number, name: string) => [`${value.toFixed(1)}%`, name]}
-                      isAnimationActive={false}
                     />
                     <ReferenceLine y={effectiveThresholds.cpuWarning} stroke="#eab308" strokeDasharray="4 3" strokeWidth={1} />
                     <ReferenceLine y={effectiveThresholds.cpuCritical} stroke="#ef4444" strokeDasharray="4 3" strokeWidth={1} />
-                    <Area type="monotone" dataKey="cpu" stroke="#ef4444" strokeWidth={2} fill="url(#gradCpu)" dot={false} name="CPU %" isAnimationActive={false} />
-                    <Area type="monotone" dataKey="ram" stroke="#3b82f6" strokeWidth={2} fill="url(#gradRam)" dot={false} name="RAM %" isAnimationActive={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Disk */}
-              <div className="bg-neutral-900 border border-neutral-800 p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-medium text-neutral-300">Disk Usage</h3>
-                  <div className="flex items-center gap-4 text-xs text-neutral-500">
-                    <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 bg-amber-500"></span>Disk</span>
-                  </div>
-                </div>
-                <ResponsiveContainer width="100%" height={160}>
-                  <AreaChart data={displayedMachineMetrics.history} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="gradDisk" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.25} />
-                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
-                    <XAxis dataKey="time" stroke="#525252" tick={{ fill: '#737373', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" minTickGap={60} />
-                    <YAxis stroke="#525252" tick={{ fill: '#737373', fontSize: 11 }} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} width={38} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #404040', borderRadius: '6px', fontSize: 12 }}
-                      labelStyle={{ color: '#a3a3a3', marginBottom: 4 }}
-                      itemStyle={{ color: '#e5e5e5' }}
-                      formatter={(value: number, name: string) => [`${value.toFixed(1)}%`, name]}
-                      isAnimationActive={false}
-                    />
-                    <ReferenceLine y={effectiveThresholds.diskWarning} stroke="#eab308" strokeDasharray="4 3" strokeWidth={1} />
-                    <ReferenceLine y={effectiveThresholds.diskCritical} stroke="#ef4444" strokeDasharray="4 3" strokeWidth={1} />
-                    <Area type="monotone" dataKey="disk" stroke="#f59e0b" strokeWidth={2} fill="url(#gradDisk)" dot={false} name="Disk %" isAnimationActive={false} />
+                    <Area type="monotoneX" dataKey="cpu" stroke="#ef4444" strokeWidth={2} fill="url(#gradCpu)" dot={false} name="CPU %" animationDuration={600} animationEasing="ease-out" />
+                    <Area type="monotoneX" dataKey="ram" stroke="#3b82f6" strokeWidth={2} fill="url(#gradRam)" dot={false} name="RAM %" animationDuration={600} animationEasing="ease-out" />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -1148,7 +1122,15 @@ export default function Dashboard() {
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
-                    <XAxis dataKey="time" stroke="#525252" tick={{ fill: '#737373', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" minTickGap={60} />
+                    <XAxis
+                      dataKey="time"
+                      stroke="#525252"
+                      tick={{ fill: '#737373', fontSize: 11 }}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                      minTickGap={60}
+                      tickFormatter={(v: string) => v.slice(0, 5)}
+                    />
                     <YAxis
                       stroke="#525252"
                       tick={{ fill: '#737373', fontSize: 11 }}
@@ -1165,10 +1147,9 @@ export default function Dashboard() {
                         value >= 1000 ? `${(value / 1000).toFixed(2)} Mbps` : `${value.toFixed(1)} Kbps`,
                         name,
                       ]}
-                      isAnimationActive={false}
                     />
-                    <Area type="monotone" dataKey="netIn" stroke="#10b981" strokeWidth={2} fill="url(#gradNetIn)" dot={false} name="In" isAnimationActive={false} />
-                    <Area type="monotone" dataKey="netOut" stroke="#8b5cf6" strokeWidth={2} fill="url(#gradNetOut)" dot={false} name="Out" isAnimationActive={false} />
+                    <Area type="monotoneX" dataKey="netIn" stroke="#10b981" strokeWidth={2} fill="url(#gradNetIn)" dot={false} name="In" animationDuration={600} animationEasing="ease-out" />
+                    <Area type="monotoneX" dataKey="netOut" stroke="#8b5cf6" strokeWidth={2} fill="url(#gradNetOut)" dot={false} name="Out" animationDuration={600} animationEasing="ease-out" />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
