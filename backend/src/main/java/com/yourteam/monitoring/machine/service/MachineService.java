@@ -107,6 +107,12 @@ public class MachineService {
         return toResponse(saved);
     }
 
+    @Transactional
+    public void deleteMachine(UUID machineId) {
+        getMachineOrThrow(machineId);
+        machineRepository.deleteById(machineId);
+    }
+
     private String normalize(String value) {
         if (value == null) {
             return null;

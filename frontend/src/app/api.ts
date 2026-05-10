@@ -79,3 +79,10 @@ export const issueToken = async (machineId: string) => {
   if (!response.ok) throw new Error('Failed to issue token');
   return response.json() as Promise<{ machineId: string; plainToken: string }>;
 };
+
+export const deleteMachine = async (machineId: string) => {
+  const response = await apiFetch(`/api/v1/machines/${machineId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to delete machine');
+};

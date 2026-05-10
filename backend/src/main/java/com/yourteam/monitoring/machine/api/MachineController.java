@@ -92,4 +92,13 @@ public class MachineController {
     public void revokeTokens(@PathVariable UUID machineId) {
         machineTokenService.revokeAllTokens(machineId);
     }
+
+    /**
+     * Permanently deletes a machine and all its associated data.
+     */
+    @DeleteMapping("/{machineId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteMachine(@PathVariable UUID machineId) {
+        machineService.deleteMachine(machineId);
+    }
 }
