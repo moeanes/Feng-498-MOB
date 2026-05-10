@@ -2,6 +2,9 @@ package com.yourteam.monitoring.metric.repo;
 
 import com.yourteam.monitoring.metric.domain.MetricRecord;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
@@ -21,4 +24,8 @@ public interface MetricRecordRepository extends JpaRepository<MetricRecord, Long
 
     /** Returns the most recent N records for a machine, newest first — caller reverses for chart. */
     List<MetricRecord> findByMachineIdOrderByRecordedAtDesc(UUID machineId, org.springframework.data.domain.Pageable pageable);
+
+    @Modifying
+    @Query("DELETE FROM MetricRecord m WHERE m.recordedAt < :cutoff")
+    int deleteByRecordedAtBefore(@Param("cutoff") Instant cutoff);
 }
