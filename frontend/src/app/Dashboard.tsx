@@ -818,10 +818,8 @@ export default function Dashboard() {
                       <Server className="w-4 h-4 text-neutral-400" />
                       <span className="font-mono text-sm">{machine.name}</span>
                     </div>
-                    {status === 'critical' && <AlertCircle className="w-4 h-4 text-red-500" />}
-                    {status === 'warning' && <AlertCircle className="w-4 h-4 text-yellow-500" />}
-                    {status === 'healthy' && <div className="w-2 h-2 rounded-full bg-green-500" />}
-                    {status === 'offline' && <div className="w-2 h-2 rounded-full bg-neutral-500" />}
+                    {/* Spacer so the header row still pushes content left */}
+                    <div className="w-6" />
                   </div>
 
                   <div className="mb-4 flex flex-wrap gap-2 text-xs">
@@ -858,14 +856,22 @@ export default function Dashboard() {
                   </div>
                 </button>
 
-                {/* Delete button */}
-                <button
-                  onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(machine.id); }}
-                  className="absolute top-3 right-3 p-1.5 text-neutral-600 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
-                  title="Delete machine"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                {/* Status indicator + delete button stacked in top-right corner */}
+                <div className="absolute top-3 right-3 flex flex-col items-center gap-2">
+                  <div className="flex items-center justify-center w-5 h-5">
+                    {status === 'critical' && <AlertCircle className="w-4 h-4 text-red-500" />}
+                    {status === 'warning' && <AlertCircle className="w-4 h-4 text-yellow-500" />}
+                    {status === 'healthy' && <div className="w-2 h-2 rounded-full bg-green-500" />}
+                    {status === 'offline' && <div className="w-2 h-2 rounded-full bg-neutral-500" />}
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(machine.id); }}
+                    className="p-1 text-neutral-600 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
+                    title="Delete machine"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             );
           })}
