@@ -240,85 +240,87 @@ export default function Dashboard() {
     window.localStorage.setItem('monitoring-thresholds', JSON.stringify(thresholds));
   }, [thresholds]);
 
+  // Single polling loop: fetch machines, then metrics 400 ms later in the same cycle.
+  // This guarantees the chart always reflects the data the machine list is showing.
   useEffect(() => {
-    const fetchMachines = async () => {
+    let cancelled = false;
+
+    const fetchAll = async () => {
+      // 1. Machines
       try {
         const response = await apiFetch('/api/v1/machines');
-        if (!response.ok) {
-          throw new Error('Failed to fetch machines');
-        }
-        const data: Machine[] = await response.json();
-        setMachines(data);
+        if (!response.ok || cancelled) return;
+        const machineList: Machine[] = await response.json();
+        if (!cancelled) setMachines(machineList);
+
+        // 2. Brief pause so the machine-list state settles, then pull metrics
+        await new Promise(resolve => setTimeout(resolve, 400));
+        if (cancelled) return;
+
+        // 3. Metrics for every machine
+        await Promise.all(
+          machineList.map(async (machine) => {
+            try {
+              const res = await apiFetch(`/api/v1/machines/${machine.id}/metrics/history`);
+              if (!res.ok || cancelled) return;
+              const records: Array<{
+                machineId: string;
+                recordedAt: string;
+                cpuUsage: number;
+                ramUsage: number;
+                diskUsage: number;
+                netInKbps: number | null;
+                netOutKbps: number | null;
+                uptimeSeconds: number | null;
+              }> = await res.json();
+              if (records.length === 0 || cancelled) return;
+
+              const latest = records[records.length - 1];
+              const history = records
+                .slice(-60)
+                // Drop bogus zero-CPU records (machine was offline/uninitialized)
+                .filter(r => r.cpuUsage > 0)
+                .map(r => ({
+                  time: new Date(r.recordedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                  timestamp: new Date(r.recordedAt).getTime(),
+                  cpu: r.cpuUsage,
+                  ram: r.ramUsage,
+                  disk: r.diskUsage,
+                  // Use null (not 0) for missing net values so chart shows a gap, not a flat line
+                  netIn: r.netInKbps ?? null,
+                  netOut: r.netOutKbps ?? null,
+                }));
+
+              if (!cancelled) {
+                setMetrics(prev => ({
+                  ...prev,
+                  [machine.id]: {
+                    machineId: machine.id,
+                    recordedAt: latest.recordedAt,
+                    cpuUsage: latest.cpuUsage,
+                    ramUsage: latest.ramUsage,
+                    diskUsage: latest.diskUsage,
+                    netInKbps: latest.netInKbps ?? 0,
+                    netOutKbps: latest.netOutKbps ?? 0,
+                    uptimeSeconds: latest.uptimeSeconds ?? 0,
+                    history,
+                  },
+                }));
+              }
+            } catch (err) {
+              if (!cancelled) handleRequestError(err);
+            }
+          })
+        );
       } catch (error) {
-        handleRequestError(error);
+        if (!cancelled) handleRequestError(error);
       }
     };
 
-    fetchMachines();
-    const interval = setInterval(fetchMachines, 5000);
-    return () => clearInterval(interval);
+    fetchAll();
+    const interval = setInterval(fetchAll, 5000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, []);
-
-  useEffect(() => {
-    if (machines.length === 0) return;
-
-    const fetchAllMetrics = async () => {
-      await Promise.all(
-        machines.map(async (machine) => {
-          try {
-            const res = await apiFetch(`/api/v1/machines/${machine.id}/metrics/history`);
-            if (!res.ok) return;
-            const records: Array<{
-              machineId: string;
-              recordedAt: string;
-              cpuUsage: number;
-              ramUsage: number;
-              diskUsage: number;
-              netInKbps: number | null;
-              netOutKbps: number | null;
-              uptimeSeconds: number | null;
-            }> = await res.json();
-            if (records.length === 0) return;
-
-            const latest = records[records.length - 1];
-            // Keep last 60 points for a clean rolling window
-            const window = records.slice(-60);
-            const history = window.map(r => ({
-              time: new Date(r.recordedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-              timestamp: new Date(r.recordedAt).getTime(),
-              cpu: r.cpuUsage,
-              ram: r.ramUsage,
-              disk: r.diskUsage,
-              netIn: r.netInKbps ?? 0,
-              netOut: r.netOutKbps ?? 0,
-            }));
-
-            setMetrics(prev => ({
-              ...prev,
-              [machine.id]: {
-                machineId: machine.id,
-                recordedAt: latest.recordedAt,
-                cpuUsage: latest.cpuUsage,
-                ramUsage: latest.ramUsage,
-                diskUsage: latest.diskUsage,
-                netInKbps: latest.netInKbps ?? 0,
-                netOutKbps: latest.netOutKbps ?? 0,
-                uptimeSeconds: latest.uptimeSeconds ?? 0,
-                history,
-              },
-            }));
-          } catch (err) {
-            handleRequestError(err);
-          }
-        })
-      );
-    };
-
-    fetchAllMetrics();
-    // Poll at 5 s — matches the machine-list poll so both refresh in the same cycle
-    const interval = setInterval(fetchAllMetrics, 5000);
-    return () => clearInterval(interval);
-  }, [machines]);
 
   useEffect(() => {
     if (!selectedMachine) return;
@@ -1063,7 +1065,7 @@ export default function Dashboard() {
                     <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 bg-blue-500"></span>RAM</span>
                   </div>
                 </div>
-                <ResponsiveContainer width="100%" height={240}>
+                <ResponsiveContainer key={`cpu-ram-${displayedMachineMetrics.recordedAt}`} width="100%" height={240}>
                   <AreaChart data={displayedMachineMetrics.history} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
                     <defs>
                       <linearGradient id="gradCpu" x1="0" y1="0" x2="0" y2="1">
@@ -1109,7 +1111,7 @@ export default function Dashboard() {
                     <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 bg-violet-500"></span>Out</span>
                   </div>
                 </div>
-                <ResponsiveContainer width="100%" height={200}>
+                <ResponsiveContainer key={`net-${displayedMachineMetrics.recordedAt}`} width="100%" height={200}>
                   <AreaChart data={displayedMachineMetrics.history} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
                     <defs>
                       <linearGradient id="gradNetIn" x1="0" y1="0" x2="0" y2="1">
