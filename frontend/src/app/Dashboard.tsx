@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Activity, Cpu, HardDrive, Network, Clock, Server, AlertCircle, Zap, LogOut, Plus, Copy, Check, Trash2 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, AreaChart, Area } from 'recharts';
 import { apiFetch, clearAuthToken, UnauthorizedError, createMachine, issueToken, deleteMachine } from './api';
 import { useNavigate } from './navigation';
 
@@ -281,8 +281,10 @@ export default function Dashboard() {
             if (records.length === 0) return;
 
             const latest = records[records.length - 1];
-            const history = records.map(r => ({
-              time: new Date(r.recordedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            // Keep last 60 points for a clean rolling window
+            const window = records.slice(-60);
+            const history = window.map(r => ({
+              time: new Date(r.recordedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
               timestamp: new Date(r.recordedAt).getTime(),
               cpu: r.cpuUsage,
               ram: r.ramUsage,
@@ -313,7 +315,8 @@ export default function Dashboard() {
     };
 
     fetchAllMetrics();
-    const interval = setInterval(fetchAllMetrics, 3000);
+    // Poll at 5 s — matches the machine-list poll so both refresh in the same cycle
+    const interval = setInterval(fetchAllMetrics, 5000);
     return () => clearInterval(interval);
   }, [machines]);
 
@@ -1049,48 +1052,127 @@ export default function Dashboard() {
             </div>
 
             {/* Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="space-y-6">
+
+              {/* CPU & RAM */}
               <div className="bg-neutral-900 border border-neutral-800 p-6">
-                <h3 className="text-sm text-neutral-400 mb-4">CPU & RAM Usage</h3>
-                <ResponsiveContainer width="100%" height={200}>
-                  <LineChart data={displayedMachineMetrics.history}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
-                    <XAxis dataKey="time" stroke="#737373" fontSize={11} />
-                    <YAxis stroke="#737373" fontSize={11} domain={[0, 100]} />
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-medium text-neutral-300">CPU & RAM Usage</h3>
+                  <div className="flex items-center gap-4 text-xs text-neutral-500">
+                    <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 bg-red-500"></span>CPU</span>
+                    <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 bg-blue-500"></span>RAM</span>
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height={240}>
+                  <AreaChart data={displayedMachineMetrics.history} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="gradCpu" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="gradRam" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+                    <XAxis dataKey="time" stroke="#525252" tick={{ fill: '#737373', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" minTickGap={60} />
+                    <YAxis stroke="#525252" tick={{ fill: '#737373', fontSize: 11 }} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} width={38} />
                     <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#171717',
-                        border: '1px solid #262626',
-                        borderRadius: '4px',
-                      }}
-                      labelStyle={{ color: '#a3a3a3' }}
+                      contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #404040', borderRadius: '6px', fontSize: 12 }}
+                      labelStyle={{ color: '#a3a3a3', marginBottom: 4 }}
+                      itemStyle={{ color: '#e5e5e5' }}
+                      formatter={(value: number, name: string) => [`${value.toFixed(1)}%`, name]}
+                      isAnimationActive={false}
                     />
-                    <Line type="monotone" dataKey="cpu" stroke="#ef4444" strokeWidth={2} dot={false} name="CPU %" />
-                    <Line type="monotone" dataKey="ram" stroke="#3b82f6" strokeWidth={2} dot={false} name="RAM %" />
-                  </LineChart>
+                    <ReferenceLine y={effectiveThresholds.cpuWarning} stroke="#eab308" strokeDasharray="4 3" strokeWidth={1} />
+                    <ReferenceLine y={effectiveThresholds.cpuCritical} stroke="#ef4444" strokeDasharray="4 3" strokeWidth={1} />
+                    <Area type="monotone" dataKey="cpu" stroke="#ef4444" strokeWidth={2} fill="url(#gradCpu)" dot={false} name="CPU %" isAnimationActive={false} />
+                    <Area type="monotone" dataKey="ram" stroke="#3b82f6" strokeWidth={2} fill="url(#gradRam)" dot={false} name="RAM %" isAnimationActive={false} />
+                  </AreaChart>
                 </ResponsiveContainer>
               </div>
 
+              {/* Disk */}
               <div className="bg-neutral-900 border border-neutral-800 p-6">
-                <h3 className="text-sm text-neutral-400 mb-4">Network Traffic</h3>
-                <ResponsiveContainer width="100%" height={200}>
-                  <LineChart data={displayedMachineMetrics.history}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
-                    <XAxis dataKey="time" stroke="#737373" fontSize={11} />
-                    <YAxis stroke="#737373" fontSize={11} />
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-medium text-neutral-300">Disk Usage</h3>
+                  <div className="flex items-center gap-4 text-xs text-neutral-500">
+                    <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 bg-amber-500"></span>Disk</span>
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height={160}>
+                  <AreaChart data={displayedMachineMetrics.history} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="gradDisk" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+                    <XAxis dataKey="time" stroke="#525252" tick={{ fill: '#737373', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" minTickGap={60} />
+                    <YAxis stroke="#525252" tick={{ fill: '#737373', fontSize: 11 }} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} width={38} />
                     <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#171717',
-                        border: '1px solid #262626',
-                        borderRadius: '4px',
-                      }}
-                      labelStyle={{ color: '#a3a3a3' }}
+                      contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #404040', borderRadius: '6px', fontSize: 12 }}
+                      labelStyle={{ color: '#a3a3a3', marginBottom: 4 }}
+                      itemStyle={{ color: '#e5e5e5' }}
+                      formatter={(value: number, name: string) => [`${value.toFixed(1)}%`, name]}
+                      isAnimationActive={false}
                     />
-                    <Line type="monotone" dataKey="netIn" stroke="#10b981" strokeWidth={2} dot={false} name="In (Kbps)" />
-                    <Line type="monotone" dataKey="netOut" stroke="#8b5cf6" strokeWidth={2} dot={false} name="Out (Kbps)" />
-                  </LineChart>
+                    <ReferenceLine y={effectiveThresholds.diskWarning} stroke="#eab308" strokeDasharray="4 3" strokeWidth={1} />
+                    <ReferenceLine y={effectiveThresholds.diskCritical} stroke="#ef4444" strokeDasharray="4 3" strokeWidth={1} />
+                    <Area type="monotone" dataKey="disk" stroke="#f59e0b" strokeWidth={2} fill="url(#gradDisk)" dot={false} name="Disk %" isAnimationActive={false} />
+                  </AreaChart>
                 </ResponsiveContainer>
               </div>
+
+              {/* Network */}
+              <div className="bg-neutral-900 border border-neutral-800 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-medium text-neutral-300">Network Traffic</h3>
+                  <div className="flex items-center gap-4 text-xs text-neutral-500">
+                    <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 bg-emerald-500"></span>In</span>
+                    <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 bg-violet-500"></span>Out</span>
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height={200}>
+                  <AreaChart data={displayedMachineMetrics.history} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="gradNetIn" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="gradNetOut" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+                    <XAxis dataKey="time" stroke="#525252" tick={{ fill: '#737373', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" minTickGap={60} />
+                    <YAxis
+                      stroke="#525252"
+                      tick={{ fill: '#737373', fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}M` : `${v.toFixed(0)}K`}
+                      width={44}
+                    />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #404040', borderRadius: '6px', fontSize: 12 }}
+                      labelStyle={{ color: '#a3a3a3', marginBottom: 4 }}
+                      itemStyle={{ color: '#e5e5e5' }}
+                      formatter={(value: number, name: string) => [
+                        value >= 1000 ? `${(value / 1000).toFixed(2)} Mbps` : `${value.toFixed(1)} Kbps`,
+                        name,
+                      ]}
+                      isAnimationActive={false}
+                    />
+                    <Area type="monotone" dataKey="netIn" stroke="#10b981" strokeWidth={2} fill="url(#gradNetIn)" dot={false} name="In" isAnimationActive={false} />
+                    <Area type="monotone" dataKey="netOut" stroke="#8b5cf6" strokeWidth={2} fill="url(#gradNetOut)" dot={false} name="Out" isAnimationActive={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+
             </div>
           </div>
         ) : (
