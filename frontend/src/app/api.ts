@@ -77,5 +77,5 @@ export const issueToken = async (machineId: string) => {
     method: 'POST',
   });
   if (!response.ok) throw new Error('Failed to issue token');
-  return response.json() as Promise<{ machineId: string; token: string }>;
+  return response.json() as Promise<{ machineId: string; plainToken: string }>;
 };

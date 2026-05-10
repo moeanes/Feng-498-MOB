@@ -197,7 +197,7 @@ export default function Dashboard() {
     try {
       const machine = await createMachine(addMachineName.trim());
       const tokenData = await issueToken(machine.id);
-      setAddMachineResult({ machineId: machine.id, token: tokenData.token, name: machine.name });
+      setAddMachineResult({ machineId: machine.id, token: tokenData.plainToken, name: machine.name });
       setAddMachineName('');
     } catch (error) {
       handleRequestError(error);
