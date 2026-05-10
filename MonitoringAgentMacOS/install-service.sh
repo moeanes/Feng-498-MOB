@@ -45,13 +45,16 @@ if [ ! -f "$PLIST_SRC" ]; then
 fi
 echo "  [OK] Plist dosyasi bulundu."
 
-if ! command -v java &> /dev/null; then
-    echo "  [HATA] Java bulunamadi!"
-    echo "  Java 21 kur: https://adoptium.net"
+# macOS'ta /usr/libexec/java_home, sudo altında da doğru JVM yolunu bulur
+JAVA_HOME_DIR="$(/usr/libexec/java_home -v 17+ 2>/dev/null)"
+if [ -z "$JAVA_HOME_DIR" ]; then
+    echo "  [HATA] Java 17+ bulunamadi!"
+    echo "  Java 17+ kur: https://adoptium.net"
     echo ""
     exit 1
 fi
-echo "  [OK] Java bulundu: $(java -version 2>&1 | head -1)"
+JAVA_REAL="$JAVA_HOME_DIR/bin/java"
+echo "  [OK] Java bulundu: $("$JAVA_REAL" -version 2>&1 | head -1) ($JAVA_REAL)"
 
 if launchctl list 2>/dev/null | grep -q "$PLIST_NAME"; then
     echo ""
@@ -66,10 +69,11 @@ mkdir -p "$INSTALL_DIR/logs"
 cp "$JAR"   "$INSTALL_DIR/monitoring-agent.jar"
 cp "$PROPS" "$INSTALL_DIR/agent.properties"
 
-cp "$PLIST_SRC" "$PLIST_DEST"
+# Plist'teki /usr/bin/java'yı gerçek Java yoluyla değiştirerek yaz
+sed "s|<string>/usr/bin/java</string>|<string>$JAVA_REAL</string>|" "$PLIST_SRC" > "$PLIST_DEST"
 chmod 644 "$PLIST_DEST"
 chown root:wheel "$PLIST_DEST"
-echo "  [OK] Dosyalar kopyalandi."
+echo "  [OK] Dosyalar kopyalandi. (Java: $JAVA_REAL)"
 
 echo ""
 echo "  Servis baslatiliyor..."
