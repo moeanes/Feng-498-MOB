@@ -45,15 +45,27 @@ if [ ! -f "$PLIST_SRC" ]; then
 fi
 echo "  [OK] Plist dosyasi bulundu."
 
-# macOS'ta /usr/libexec/java_home, sudo altında da doğru JVM yolunu bulur
-JAVA_HOME_DIR="$(/usr/libexec/java_home -v 17+ 2>/dev/null)"
-if [ -z "$JAVA_HOME_DIR" ]; then
-    echo "  [HATA] Java 17+ bulunamadi!"
+# Tum JVM'leri tara, en yuksek Java 17+ surumunu sec (JAVA_HOME baz alinmaz)
+JAVA_REAL=""
+JAVA_BEST_VER=0
+for jvm_home in /Library/Java/JavaVirtualMachines/*/Contents/Home; do
+    java_bin="$jvm_home/bin/java"
+    if [ -x "$java_bin" ]; then
+        ver=$("$java_bin" -version 2>&1 | head -1 | sed 's/[^0-9]*\([0-9]*\).*/\1/')
+        if [ "$ver" -ge 17 ] 2>/dev/null && [ "$ver" -gt "$JAVA_BEST_VER" ] 2>/dev/null; then
+            JAVA_BEST_VER=$ver
+            JAVA_REAL="$java_bin"
+        fi
+    fi
+done
+
+if [ -z "$JAVA_REAL" ]; then
+    echo "  [HATA] /Library/Java/JavaVirtualMachines/ icinde Java 17+ bulunamadi!"
     echo "  Java 17+ kur: https://adoptium.net"
+    echo "  Kurulduktan sonra tekrar dene."
     echo ""
     exit 1
 fi
-JAVA_REAL="$JAVA_HOME_DIR/bin/java"
 echo "  [OK] Java bulundu: $("$JAVA_REAL" -version 2>&1 | head -1) ($JAVA_REAL)"
 
 if launchctl list 2>/dev/null | grep -q "$PLIST_NAME"; then

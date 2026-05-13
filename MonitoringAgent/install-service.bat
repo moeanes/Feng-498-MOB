@@ -45,13 +45,17 @@ if not exist "%WINSW_XML%" (
 )
 echo  [OK] monitoring-agent-service.xml bulundu.
 
-java -version >nul 2>&1
-if %errorLevel% NEQ 0 (
-    echo  [HATA] Java bulunamadi!
+echo  En yuksek Java 17+ surumu aranıyor...
+set "JAVA_EXE="
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$d='C:\Program Files\Java','C:\Program Files\Eclipse Adoptium','C:\Program Files\Microsoft','C:\Program Files\BellSoft','C:\Program Files\Amazon Corretto','C:\Program Files\Zulu','C:\Program Files\OpenJDK','C:\Program Files\Semeru'; $b=$null; $bv=0; $d | ForEach-Object { if(Test-Path $_){ Get-ChildItem $_ -Directory -EA 0 | ForEach-Object { $j=Join-Path $_.FullName 'bin\java.exe'; if(Test-Path $j){ $r=& $j -version 2>&1 | Select-String '(\d+)'; if($r){ $v=[int]$r.Matches[0].Value; if($v -ge 17 -and $v -gt $bv){ $bv=$v; $b=$j } } } } } }; if($b){ $b } else { exit 1 }" > "%TEMP%\_javapath.txt" 2>nul
+set /p JAVA_EXE=<"%TEMP%\_javapath.txt"
+del "%TEMP%\_javapath.txt" >nul 2>&1
+if not defined JAVA_EXE (
+    echo  [HATA] Java 17+ bulunamadi! Java 17+ yukleyin: https://adoptium.net
     pause
     exit /b 1
 )
-echo  [OK] Java bulundu.
+echo  [OK] Java bulundu: %JAVA_EXE%
 
 if not exist "%WINSW_EXE%" (
     echo  WinSW indiriliyor...

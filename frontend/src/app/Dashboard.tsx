@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Activity, Cpu, HardDrive, Network, Clock, Server, AlertCircle, Zap, LogOut, Plus, Copy, Check, Trash2 } from 'lucide-react';
-import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, AreaChart, Area } from 'recharts';
-import { apiFetch, clearAuthToken, UnauthorizedError, createMachine, issueToken, deleteMachine } from './api';
+import { Activity, Cpu, HardDrive, Network, Clock, Server, AlertCircle, Zap, LogOut, Plus, Copy, Check, Download } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { apiFetch, clearAuthToken, UnauthorizedError, createMachine, issueToken } from './api';
 import { useNavigate } from './navigation';
 
 interface Machine {
@@ -31,8 +31,8 @@ interface MachineMetrics {
     cpu: number;
     ram: number;
     disk: number;
-    netIn: number | null;
-    netOut: number | null;
+    netIn: number;
+    netOut: number;
   }>;
 }
 
@@ -167,6 +167,325 @@ const getAlertColor = (severity: AlertSeverity) => {
     : 'border-yellow-500/40 bg-yellow-500/10 text-yellow-300';
 };
 
+// ---- Installer script generators ----
+
+const triggerDownload = (content: string, filename: string, mimeType: string) => {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+const generateWindowsInstaller = (machineId: string, token: string) => {
+  const backendUrl = (import.meta.env.VITE_API_BASE_URL as string ?? '').replace(/\/$/, '');
+  const jarUrl = 'https://github.com/moeanes/Feng-498-MOB/releases/latest/download/monitoring-agent.jar';
+  const winswUrl = 'https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe';
+
+  const lines = [
+    '@echo off',
+    'setlocal EnableDelayedExpansion',
+    'title Monitoring Agent - Otomatik Kurulum',
+    '',
+    ':: Bu script dashboard tarafindan olusturulmustur.',
+    ':: agent.properties otomatik doldurulur, Windows servisi kurulur.',
+    `set "MACHINE_ID=${machineId}"`,
+    `set "MACHINE_TOKEN=${token}"`,
+    `set "BACKEND_URL=${backendUrl}"`,
+    `set "JAR_URL=${jarUrl}"`,
+    `set "WINSW_URL=${winswUrl}"`,
+    '',
+    'net session >nul 2>&1',
+    'if %errorLevel% NEQ 0 (',
+    '    echo.',
+    '    echo  [HATA] Yonetici yetkisi gerekli.',
+    '    echo  Dosyaya sag tik ^> "Yonetici olarak calistir" secin.',
+    '    echo.',
+    '    pause',
+    '    exit /b 1',
+    ')',
+    '',
+    'set "DIR=%~dp0"',
+    'set "WINSW_EXE=%DIR%monitoring-agent-service.exe"',
+    'set "JAR=%DIR%monitoring-agent.jar"',
+    'set "PROPS=%DIR%agent.properties"',
+    'set "XML=%DIR%monitoring-agent-service.xml"',
+    'set "SERVICE_ID=MonitoringAgent"',
+    '',
+    'echo.',
+    'echo  ================================================',
+    'echo   Monitoring Agent - Otomatik Kurulum',
+    'echo  ================================================',
+    'echo.',
+    '',
+    ':: 1. En yuksek Java 17+ surumunu bul (JAVA_HOME baz alinmaz, tum dizinler taranir)',
+    'echo  Java 17+ aranıyor...',
+    'set "JAVA_EXE="',
+    'powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=\'C:\\Program Files\\Java\',\'C:\\Program Files\\Eclipse Adoptium\',\'C:\\Program Files\\Microsoft\',\'C:\\Program Files\\BellSoft\',\'C:\\Program Files\\Amazon Corretto\',\'C:\\Program Files\\Zulu\',\'C:\\Program Files\\OpenJDK\',\'C:\\Program Files\\Semeru\'; $b=$null; $bv=0; $d | ForEach-Object { if(Test-Path $_){ Get-ChildItem $_ -Directory -EA 0 | ForEach-Object { $j=Join-Path $_.FullName \'bin\\java.exe\'; if(Test-Path $j){ $r=& $j -version 2>&1 | Select-String \'(\\d+)\'; if($r){ $v=[int]$r.Matches[0].Value; if($v -ge 17 -and $v -gt $bv){ $bv=$v; $b=$j } } } } } }; if($b){ $b } else { exit 1 }" > "%TEMP%\\_javapath.txt" 2>nul',
+    'set /p JAVA_EXE=<"%TEMP%\\_javapath.txt"',
+    'del "%TEMP%\\_javapath.txt" >nul 2>&1',
+    'if not defined JAVA_EXE (',
+    '    echo  [HATA] Java 17+ bulunamadi! Java 17+ yukleyin: https://adoptium.net',
+    '    pause',
+    '    exit /b 1',
+    ')',
+    'echo  [OK] Java bulundu: %JAVA_EXE%',
+    '',
+    ':: 2. agent.properties olustur (kimlik bilgileri baked-in)',
+    'echo  agent.properties olusturuluyor...',
+    '(',
+    'echo agent.backend-url=%BACKEND_URL%',
+    'echo agent.machine-id=%MACHINE_ID%',
+    'echo agent.machine-token=%MACHINE_TOKEN%',
+    ') > "%PROPS%"',
+    'echo  [OK] agent.properties olusturuldu.',
+    '',
+    ':: 3. monitoring-agent.jar indir (yoksa)',
+    'if not exist "%JAR%" (',
+    '    echo  monitoring-agent.jar indiriliyor...',
+    '    powershell -NoProfile -Command "Invoke-WebRequest -Uri \'%JAR_URL%\' -OutFile \'%JAR%\' -UseBasicParsing"',
+    '    if not exist "%JAR%" (',
+    '        echo  [HATA] JAR indirilemedi. monitoring-agent.jar dosyasini bu klasore elle kopyalayin.',
+    '        pause',
+    '        exit /b 1',
+    '    )',
+    '    echo  [OK] monitoring-agent.jar indirildi.',
+    ') else (',
+    '    echo  [OK] monitoring-agent.jar zaten mevcut.',
+    ')',
+    '',
+    ':: 4. WinSW servis XML dosyasini olustur',
+    'echo  Servis XML olusturuluyor...',
+    '(',
+    'echo ^<service^>',
+    'echo   ^<id^>MonitoringAgent^</id^>',
+    'echo   ^<name^>Monitoring Agent^</name^>',
+    'echo   ^<description^>FENG-498 Monitoring Agent^</description^>',
+    'echo   ^<executable^>%JAVA_EXE%^</executable^>',
+    'echo   ^<arguments^>-jar "%%BASE%%\\monitoring-agent.jar"^</arguments^>',
+    'echo   ^<workingdirectory^>%%BASE%%^</workingdirectory^>',
+    'echo   ^<logpath^>%%BASE%%\\logs^</logpath^>',
+    'echo   ^<logmode^>rotate^</logmode^>',
+    'echo   ^<onfailure action="restart" delay="10 sec"/^>',
+    'echo   ^<onfailure action="restart" delay="20 sec"/^>',
+    'echo   ^<onfailure action="restart" delay="30 sec"/^>',
+    'echo   ^<resetfailure^>1 hour^</resetfailure^>',
+    'echo   ^<startmode^>Automatic^</startmode^>',
+    'echo ^</service^>',
+    ') > "%XML%"',
+    'echo  [OK] Servis XML olusturuldu.',
+    '',
+    ':: 5. WinSW indir (yoksa)',
+    'if not exist "%WINSW_EXE%" (',
+    '    echo  WinSW indiriliyor...',
+    '    powershell -NoProfile -Command "Invoke-WebRequest -Uri \'%WINSW_URL%\' -OutFile \'%WINSW_EXE%\' -UseBasicParsing"',
+    '    if not exist "%WINSW_EXE%" (',
+    '        echo  [HATA] WinSW indirilemedi.',
+    '        pause',
+    '        exit /b 1',
+    '    )',
+    '    echo  [OK] WinSW indirildi.',
+    ') else (',
+    '    echo  [OK] WinSW zaten mevcut.',
+    ')',
+    '',
+    ':: 6. Mevcut servisi kaldir',
+    'sc query "%SERVICE_ID%" >nul 2>&1',
+    'if %errorLevel% EQU 0 (',
+    '    echo  Mevcut servis kaldiriliyor...',
+    '    "%WINSW_EXE%" stop  >nul 2>&1',
+    '    "%WINSW_EXE%" uninstall >nul 2>&1',
+    '    timeout /t 2 /nobreak >nul',
+    ')',
+    '',
+    ':: 7. Servisi kur',
+    'echo  Servis kuruluyor...',
+    '"%WINSW_EXE%" install',
+    'if %errorLevel% NEQ 0 (',
+    '    echo  [HATA] Servis kurulamadi!',
+    '    pause',
+    '    exit /b 1',
+    ')',
+    'echo  [OK] Servis kuruldu.',
+    '',
+    ':: 8. Servisi baslat',
+    'echo  Servis baslatiliyor...',
+    '"%WINSW_EXE%" start',
+    'if %errorLevel% NEQ 0 (',
+    '    echo  [HATA] Servis baslatilamadi!',
+    '    pause',
+    '    exit /b 1',
+    ')',
+    'echo  [OK] Servis baslatildi.',
+    '',
+    'echo.',
+    'echo  ================================================',
+    'echo   KURULUM TAMAMLANDI!',
+    'echo  ================================================',
+    'echo.',
+    'echo  Makine ID  : %MACHINE_ID%',
+    'echo  Log klasoru: %DIR%logs\\',
+    'echo.',
+    'sc query "%SERVICE_ID%" | findstr "STATE"',
+    'echo.',
+    'pause',
+  ].join('\r\n');
+
+  triggerDownload(lines, 'install-agent-windows.bat', 'application/octet-stream');
+};
+
+const generateMacOSInstaller = (machineId: string, token: string) => {
+  const backendUrl = (import.meta.env.VITE_API_BASE_URL as string ?? '').replace(/\/$/, '');
+  const jarUrl = 'https://github.com/moeanes/Feng-498-MOB/releases/latest/download/monitoring-agent.jar';
+
+  const script = `#!/bin/bash
+# Bu script dashboard tarafindan olusturulmustur.
+# agent.properties otomatik doldurulur, macOS launchd servisi kurulur.
+
+MACHINE_ID="${machineId}"
+MACHINE_TOKEN="${token}"
+BACKEND_URL="${backendUrl}"
+JAR_URL="${jarUrl}"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTALL_DIR="/Library/MonitoringAgent"
+PLIST_NAME="com.yourteam.monitoringagent"
+PLIST_DEST="/Library/LaunchDaemons/$PLIST_NAME.plist"
+JAR="$SCRIPT_DIR/monitoring-agent.jar"
+PROPS="$SCRIPT_DIR/agent.properties"
+
+if [ "$EUID" -ne 0 ]; then
+    echo ""
+    echo "  [HATA] Yonetici yetkisi gerekli."
+    echo "  Kullanim: sudo bash install-agent.sh"
+    echo ""
+    exit 1
+fi
+
+echo ""
+echo "  ================================================"
+echo "   Monitoring Agent macOS - Otomatik Kurulum"
+echo "  ================================================"
+echo ""
+
+# 1. En yuksek Java 17+ surumunu bul (JAVA_HOME baz alinmaz, tum JVMler taranir)
+JAVA_REAL=""
+JAVA_BEST_VER=0
+for jvm_home in /Library/Java/JavaVirtualMachines/*/Contents/Home; do
+    java_bin="$jvm_home/bin/java"
+    if [ -x "$java_bin" ]; then
+        ver=$("$java_bin" -version 2>&1 | head -1 | sed 's/[^0-9]*\\([0-9]*\\).*/\\1/')
+        if [ "$ver" -ge 17 ] 2>/dev/null && [ "$ver" -gt "$JAVA_BEST_VER" ] 2>/dev/null; then
+            JAVA_BEST_VER=$ver
+            JAVA_REAL="$java_bin"
+        fi
+    fi
+done
+
+if [ -z "$JAVA_REAL" ]; then
+    echo "  [HATA] Java 17+ bulunamadi!"
+    echo "  https://adoptium.net adresinden yukleyin."
+    exit 1
+fi
+echo "  [OK] Java bulundu: $($JAVA_REAL -version 2>&1 | head -1)"
+
+# 2. agent.properties olustur (kimlik bilgileri baked-in)
+echo "  agent.properties olusturuluyor..."
+cat > "$PROPS" <<AGENTEOF
+agent.backend-url=$BACKEND_URL
+agent.machine-id=$MACHINE_ID
+agent.machine-token=$MACHINE_TOKEN
+AGENTEOF
+echo "  [OK] agent.properties olusturuldu."
+
+# 3. monitoring-agent.jar indir (yoksa)
+if [ ! -f "$JAR" ]; then
+    echo "  monitoring-agent.jar indiriliyor..."
+    curl -fsSL "$JAR_URL" -o "$JAR"
+    if [ ! -f "$JAR" ]; then
+        echo "  [HATA] JAR indirilemedi. monitoring-agent.jar dosyasini bu klasore elle kopyalayin."
+        exit 1
+    fi
+    echo "  [OK] monitoring-agent.jar indirildi."
+else
+    echo "  [OK] monitoring-agent.jar zaten mevcut."
+fi
+
+# 4. Mevcut servisi kaldir
+if launchctl list 2>/dev/null | grep -q "$PLIST_NAME"; then
+    echo "  Mevcut servis kaldiriliyor..."
+    launchctl unload "$PLIST_DEST" 2>/dev/null
+    sleep 1
+fi
+
+# 5. Kurulum dizini olustur ve dosyalari kopyala
+mkdir -p "$INSTALL_DIR/logs"
+cp "$JAR"   "$INSTALL_DIR/monitoring-agent.jar"
+cp "$PROPS" "$INSTALL_DIR/agent.properties"
+
+# 6. Launchd plist olustur
+cat > "$PLIST_DEST" <<PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.yourteam.monitoringagent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$JAVA_REAL</string>
+        <string>-jar</string>
+        <string>/Library/MonitoringAgent/monitoring-agent.jar</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Library/MonitoringAgent</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Library/MonitoringAgent/logs/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Library/MonitoringAgent/logs/stderr.log</string>
+</dict>
+</plist>
+PLISTEOF
+chmod 644 "$PLIST_DEST"
+chown root:wheel "$PLIST_DEST"
+echo "  [OK] Servis yapilandirmasi olusturuldu."
+
+# 7. Servisi baslat
+launchctl load -w "$PLIST_DEST"
+sleep 2
+
+if launchctl list 2>/dev/null | grep -q "$PLIST_NAME"; then
+    echo "  [OK] Servis baslatildi."
+else
+    echo "  [HATA] Servis baslatılamadi!"
+    echo "  Loglara bak: $INSTALL_DIR/logs/stderr.log"
+    exit 1
+fi
+
+echo ""
+echo "  ================================================"
+echo "   KURULUM TAMAMLANDI!"
+echo "  ================================================"
+echo ""
+echo "  Makine ID  : $MACHINE_ID"
+echo "  Kurulum    : $INSTALL_DIR"
+echo "  Log klasoru: $INSTALL_DIR/logs/"
+echo ""
+echo "  Kaldirmak icin: sudo bash uninstall-agent.sh"
+echo ""
+`;
+
+  triggerDownload(script, 'install-agent-macos.sh', 'application/x-sh');
+};
+
 export default function Dashboard() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [metrics, setMetrics] = useState<Record<string, MachineMetrics>>({});
@@ -181,8 +500,6 @@ export default function Dashboard() {
   const [addMachineLoading, setAddMachineLoading] = useState(false);
   const [addMachineResult, setAddMachineResult] = useState<{ machineId: string; token: string; name: string } | null>(null);
   const [copiedField, setCopiedField] = useState<'id' | 'token' | null>(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleRequestError = (error: unknown) => {
@@ -220,107 +537,86 @@ export default function Dashboard() {
     setAddMachineName('');
   };
 
-  const handleDeleteMachine = async (machineId: string) => {
-    setDeleteLoading(true);
-    try {
-      await deleteMachine(machineId);
-      setMachines(prev => prev.filter(m => m.id !== machineId));
-      setMetrics(prev => { const next = { ...prev }; delete next[machineId]; return next; });
-      setProcessMetrics(prev => { const next = { ...prev }; delete next[machineId]; return next; });
-      if (selectedMachine === machineId) setSelectedMachine(null);
-    } catch (error) {
-      handleRequestError(error);
-    } finally {
-      setDeleteLoading(false);
-      setDeleteConfirmId(null);
-    }
-  };
-
   useEffect(() => {
     window.localStorage.setItem('monitoring-thresholds', JSON.stringify(thresholds));
   }, [thresholds]);
 
-  // Single polling loop: fetch machines, then metrics 400 ms later in the same cycle.
-  // This guarantees the chart always reflects the data the machine list is showing.
   useEffect(() => {
-    let cancelled = false;
-
-    const fetchAll = async () => {
-      // 1. Machines
+    const fetchMachines = async () => {
       try {
         const response = await apiFetch('/api/v1/machines');
-        if (!response.ok || cancelled) return;
-        const machineList: Machine[] = await response.json();
-        if (!cancelled) setMachines(machineList);
-
-        // 2. Brief pause so the machine-list state settles, then pull metrics
-        await new Promise(resolve => setTimeout(resolve, 400));
-        if (cancelled) return;
-
-        // 3. Metrics for every machine
-        await Promise.all(
-          machineList.map(async (machine) => {
-            try {
-              const res = await apiFetch(`/api/v1/machines/${machine.id}/metrics/history`);
-              if (!res.ok || cancelled) return;
-              const records: Array<{
-                machineId: string;
-                recordedAt: string;
-                cpuUsage: number;
-                ramUsage: number;
-                diskUsage: number;
-                netInKbps: number | null;
-                netOutKbps: number | null;
-                uptimeSeconds: number | null;
-              }> = await res.json();
-              if (records.length === 0 || cancelled) return;
-
-              const latest = records[records.length - 1];
-              const history = records
-                .slice(-60)
-                // Drop bogus zero-CPU records (machine was offline/uninitialized)
-                .filter(r => r.cpuUsage > 0)
-                .map(r => ({
-                  time: new Date(r.recordedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-                  timestamp: new Date(r.recordedAt).getTime(),
-                  cpu: r.cpuUsage,
-                  ram: r.ramUsage,
-                  disk: r.diskUsage,
-                  // Use null (not 0) for missing net values so chart shows a gap, not a flat line
-                  netIn: r.netInKbps ?? null,
-                  netOut: r.netOutKbps ?? null,
-                }));
-
-              if (!cancelled) {
-                setMetrics(prev => ({
-                  ...prev,
-                  [machine.id]: {
-                    machineId: machine.id,
-                    recordedAt: latest.recordedAt,
-                    cpuUsage: latest.cpuUsage,
-                    ramUsage: latest.ramUsage,
-                    diskUsage: latest.diskUsage,
-                    netInKbps: latest.netInKbps ?? 0,
-                    netOutKbps: latest.netOutKbps ?? 0,
-                    uptimeSeconds: latest.uptimeSeconds ?? 0,
-                    history,
-                  },
-                }));
-              }
-            } catch (err) {
-              if (!cancelled) handleRequestError(err);
-            }
-          })
-        );
+        if (!response.ok) {
+          throw new Error('Failed to fetch machines');
+        }
+        const data: Machine[] = await response.json();
+        setMachines(data);
       } catch (error) {
-        if (!cancelled) handleRequestError(error);
+        handleRequestError(error);
       }
     };
 
-    fetchAll();
-    const interval = setInterval(fetchAll, 5000);
-    return () => { cancelled = true; clearInterval(interval); };
+    fetchMachines();
+    const interval = setInterval(fetchMachines, 5000);
+    return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (machines.length === 0) return;
+
+    const fetchAllMetrics = async () => {
+      await Promise.all(
+        machines.map(async (machine) => {
+          try {
+            const res = await apiFetch(`/api/v1/machines/${machine.id}/metrics/history`);
+            if (!res.ok) return;
+            const records: Array<{
+              machineId: string;
+              recordedAt: string;
+              cpuUsage: number;
+              ramUsage: number;
+              diskUsage: number;
+              netInKbps: number | null;
+              netOutKbps: number | null;
+              uptimeSeconds: number | null;
+            }> = await res.json();
+            if (records.length === 0) return;
+
+            const latest = records[records.length - 1];
+            const history = records.map(r => ({
+              time: new Date(r.recordedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              timestamp: new Date(r.recordedAt).getTime(),
+              cpu: r.cpuUsage,
+              ram: r.ramUsage,
+              disk: r.diskUsage,
+              netIn: r.netInKbps ?? 0,
+              netOut: r.netOutKbps ?? 0,
+            }));
+
+            setMetrics(prev => ({
+              ...prev,
+              [machine.id]: {
+                machineId: machine.id,
+                recordedAt: latest.recordedAt,
+                cpuUsage: latest.cpuUsage,
+                ramUsage: latest.ramUsage,
+                diskUsage: latest.diskUsage,
+                netInKbps: latest.netInKbps ?? 0,
+                netOutKbps: latest.netOutKbps ?? 0,
+                uptimeSeconds: latest.uptimeSeconds ?? 0,
+                history,
+              },
+            }));
+          } catch (err) {
+            handleRequestError(err);
+          }
+        })
+      );
+    };
+
+    fetchAllMetrics();
+    const interval = setInterval(fetchAllMetrics, 3000);
+    return () => clearInterval(interval);
+  }, [machines]);
 
   useEffect(() => {
     if (!selectedMachine) return;
@@ -584,38 +880,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Delete Confirmation Modal */}
-        {deleteConfirmId && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-            <div className="bg-neutral-900 border border-neutral-800 p-6 w-full max-w-sm mx-4">
-              <h2 className="text-lg mb-2">Delete Machine</h2>
-              <p className="text-sm text-neutral-400 mb-6">
-                Are you sure you want to permanently delete{' '}
-                <span className="text-white font-mono">
-                  {machines.find(m => m.id === deleteConfirmId)?.name ?? deleteConfirmId}
-                </span>?
-                This will remove all associated metrics and data and cannot be undone.
-              </p>
-              <div className="flex gap-2 justify-end">
-                <button
-                  onClick={() => setDeleteConfirmId(null)}
-                  disabled={deleteLoading}
-                  className="px-4 py-2 border border-neutral-800 text-sm text-neutral-400 hover:text-white hover:border-neutral-700 transition-colors disabled:opacity-40"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => handleDeleteMachine(deleteConfirmId)}
-                  disabled={deleteLoading}
-                  className="px-4 py-2 border border-red-500/50 bg-red-500/10 text-sm text-red-300 hover:bg-red-500/20 hover:border-red-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  {deleteLoading ? 'Deleting...' : 'Delete'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Add Machine Modal */}
         {showAddMachine && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
@@ -689,6 +953,31 @@ export default function Dashboard() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Installer download */}
+                  <div className="mb-5 p-3 border border-neutral-800 bg-neutral-950">
+                    <div className="text-xs text-neutral-400 mb-1">Agent Installer</div>
+                    <div className="text-xs text-neutral-600 mb-3">
+                      Script, agent.properties'i otomatik doldurur, JAR'ı indirir ve servisi kurar. Yönetici/sudo yetkisiyle çalıştırın.
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => generateWindowsInstaller(addMachineResult.machineId, addMachineResult.token)}
+                        className="flex items-center gap-1.5 px-3 py-2 border border-blue-500/40 bg-blue-500/10 text-xs text-blue-300 hover:bg-blue-500/20 hover:border-blue-500/60 transition-colors"
+                      >
+                        <Download className="w-3 h-3" />
+                        Windows (.bat)
+                      </button>
+                      <button
+                        onClick={() => generateMacOSInstaller(addMachineResult.machineId, addMachineResult.token)}
+                        className="flex items-center gap-1.5 px-3 py-2 border border-neutral-700 bg-neutral-900 text-xs text-neutral-300 hover:text-white hover:border-neutral-600 transition-colors"
+                      >
+                        <Download className="w-3 h-3" />
+                        macOS (.sh)
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="flex justify-end">
                     <button
                       onClick={handleCloseAddMachine}
@@ -806,78 +1095,59 @@ export default function Dashboard() {
             const ageSeconds = getDataAgeSeconds(machine);
 
             return (
-              <div
+              <button
                 key={machine.id}
-                className={`relative bg-neutral-900 border transition-all ${
+                onClick={() => setSelectedMachine(isSelected ? null : machine.id)}
+                className={`bg-neutral-900 border p-6 text-left transition-all ${
                   isSelected
                     ? 'border-blue-500 ring-2 ring-blue-500/20'
                     : 'border-neutral-800 hover:border-neutral-700'
                 }`}
               >
-                <button
-                  onClick={() => setSelectedMachine(isSelected ? null : machine.id)}
-                  className="w-full p-6 text-left"
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <Server className="w-4 h-4 text-neutral-400" />
-                      <span className="font-mono text-sm">{machine.name}</span>
-                    </div>
-                    {/* Spacer so the header row still pushes content left */}
-                    <div className="w-6" />
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Server className="w-4 h-4 text-neutral-400" />
+                    <span className="font-mono text-sm">{machine.name}</span>
                   </div>
-
-                  <div className="mb-4 flex flex-wrap gap-2 text-xs">
-                    <span className="border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300">
-                      OS: {displayValue(machine.osName)}
-                    </span>
-                    <span className="border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-500">
-                      Host: {displayValue(machine.hostname)}
-                    </span>
-                    <span className="border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-500">
-                      Seen: {formatAge(ageSeconds)}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3 text-xs">
-                    <div>
-                      <div className="text-neutral-500 mb-1">CPU</div>
-                      <div className={getStatusColor(machineMetrics?.cpuUsage ?? 0, { warning: effectiveThresholds.cpuWarning, critical: effectiveThresholds.cpuCritical })}>
-                        {(machineMetrics?.cpuUsage ?? 0).toFixed(0)}%
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-neutral-500 mb-1">RAM</div>
-                      <div className={getStatusColor(machineMetrics?.ramUsage ?? 0, { warning: effectiveThresholds.ramWarning, critical: effectiveThresholds.ramCritical })}>
-                        {(machineMetrics?.ramUsage ?? 0).toFixed(0)}%
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-neutral-500 mb-1">Disk</div>
-                      <div className={getStatusColor(machineMetrics?.diskUsage ?? 0, { warning: effectiveThresholds.diskWarning, critical: effectiveThresholds.diskCritical })}>
-                        {(machineMetrics?.diskUsage ?? 0).toFixed(0)}%
-                      </div>
-                    </div>
-                  </div>
-                </button>
-
-                {/* Status indicator + delete button stacked in top-right corner */}
-                <div className="absolute top-3 right-3 flex flex-col items-center gap-2">
-                  <div className="flex items-center justify-center w-5 h-5">
-                    {status === 'critical' && <AlertCircle className="w-4 h-4 text-red-500" />}
-                    {status === 'warning' && <AlertCircle className="w-4 h-4 text-yellow-500" />}
-                    {status === 'healthy' && <div className="w-2 h-2 rounded-full bg-green-500" />}
-                    {status === 'offline' && <div className="w-2 h-2 rounded-full bg-neutral-500" />}
-                  </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(machine.id); }}
-                    className="p-1 text-neutral-600 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
-                    title="Delete machine"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {status === 'critical' && <AlertCircle className="w-4 h-4 text-red-500" />}
+                  {status === 'warning' && <AlertCircle className="w-4 h-4 text-yellow-500" />}
+                  {status === 'healthy' && <div className="w-2 h-2 rounded-full bg-green-500" />}
+                  {status === 'offline' && <div className="w-2 h-2 rounded-full bg-neutral-500" />}
                 </div>
-              </div>
+
+                <div className="mb-4 flex flex-wrap gap-2 text-xs">
+                  <span className="border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300">
+                    OS: {displayValue(machine.osName)}
+                  </span>
+                  <span className="border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-500">
+                    Host: {displayValue(machine.hostname)}
+                  </span>
+                  <span className="border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-500">
+                    Seen: {formatAge(ageSeconds)}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <div className="text-neutral-500 mb-1">CPU</div>
+                    <div className={getStatusColor(machineMetrics?.cpuUsage ?? 0, { warning: effectiveThresholds.cpuWarning, critical: effectiveThresholds.cpuCritical })}>
+                      {(machineMetrics?.cpuUsage ?? 0).toFixed(0)}%
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-neutral-500 mb-1">RAM</div>
+                    <div className={getStatusColor(machineMetrics?.ramUsage ?? 0, { warning: effectiveThresholds.ramWarning, critical: effectiveThresholds.ramCritical })}>
+                      {(machineMetrics?.ramUsage ?? 0).toFixed(0)}%
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-neutral-500 mb-1">Disk</div>
+                    <div className={getStatusColor(machineMetrics?.diskUsage ?? 0, { warning: effectiveThresholds.diskWarning, critical: effectiveThresholds.diskCritical })}>
+                      {(machineMetrics?.diskUsage ?? 0).toFixed(0)}%
+                    </div>
+                  </div>
+                </div>
+              </button>
             );
           })}
         </div>
@@ -1054,108 +1324,48 @@ export default function Dashboard() {
             </div>
 
             {/* Charts */}
-            <div className="space-y-6">
-
-              {/* CPU & RAM */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-neutral-900 border border-neutral-800 p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-medium text-neutral-300">CPU & RAM Usage</h3>
-                  <div className="flex items-center gap-4 text-xs text-neutral-500">
-                    <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 bg-red-500"></span>CPU</span>
-                    <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 bg-blue-500"></span>RAM</span>
-                  </div>
-                </div>
-                <ResponsiveContainer key={`cpu-ram-${displayedMachineMetrics.recordedAt}`} width="100%" height={240}>
-                  <AreaChart data={displayedMachineMetrics.history} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="gradCpu" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.25} />
-                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="gradRam" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
-                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
-                    <XAxis
-                      dataKey="time"
-                      stroke="#525252"
-                      tick={{ fill: '#737373', fontSize: 11 }}
-                      tickLine={false}
-                      interval="preserveStartEnd"
-                      minTickGap={60}
-                      tickFormatter={(v: string) => v.slice(0, 5)}
-                    />
-                    <YAxis stroke="#525252" tick={{ fill: '#737373', fontSize: 11 }} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} width={38} />
+                <h3 className="text-sm text-neutral-400 mb-4">CPU & RAM Usage</h3>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={displayedMachineMetrics.history}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
+                    <XAxis dataKey="time" stroke="#737373" fontSize={11} />
+                    <YAxis stroke="#737373" fontSize={11} domain={[0, 100]} />
                     <Tooltip
-                      contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #404040', borderRadius: '6px', fontSize: 12 }}
-                      labelStyle={{ color: '#a3a3a3', marginBottom: 4 }}
-                      itemStyle={{ color: '#e5e5e5' }}
-                      formatter={(value: number, name: string) => [`${value.toFixed(1)}%`, name]}
+                      contentStyle={{
+                        backgroundColor: '#171717',
+                        border: '1px solid #262626',
+                        borderRadius: '4px',
+                      }}
+                      labelStyle={{ color: '#a3a3a3' }}
                     />
-                    <ReferenceLine y={effectiveThresholds.cpuWarning} stroke="#eab308" strokeDasharray="4 3" strokeWidth={1} />
-                    <ReferenceLine y={effectiveThresholds.cpuCritical} stroke="#ef4444" strokeDasharray="4 3" strokeWidth={1} />
-                    <Area type="monotoneX" dataKey="cpu" stroke="#ef4444" strokeWidth={2} fill="url(#gradCpu)" dot={false} name="CPU %" animationDuration={600} animationEasing="ease-out" />
-                    <Area type="monotoneX" dataKey="ram" stroke="#3b82f6" strokeWidth={2} fill="url(#gradRam)" dot={false} name="RAM %" animationDuration={600} animationEasing="ease-out" />
-                  </AreaChart>
+                    <Line type="monotone" dataKey="cpu" stroke="#ef4444" strokeWidth={2} dot={false} name="CPU %" />
+                    <Line type="monotone" dataKey="ram" stroke="#3b82f6" strokeWidth={2} dot={false} name="RAM %" />
+                  </LineChart>
                 </ResponsiveContainer>
               </div>
 
-              {/* Network */}
               <div className="bg-neutral-900 border border-neutral-800 p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-medium text-neutral-300">Network Traffic</h3>
-                  <div className="flex items-center gap-4 text-xs text-neutral-500">
-                    <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 bg-emerald-500"></span>In</span>
-                    <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 bg-violet-500"></span>Out</span>
-                  </div>
-                </div>
-                <ResponsiveContainer key={`net-${displayedMachineMetrics.recordedAt}`} width="100%" height={200}>
-                  <AreaChart data={displayedMachineMetrics.history} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="gradNetIn" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="gradNetOut" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.2} />
-                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
-                    <XAxis
-                      dataKey="time"
-                      stroke="#525252"
-                      tick={{ fill: '#737373', fontSize: 11 }}
-                      tickLine={false}
-                      interval="preserveStartEnd"
-                      minTickGap={60}
-                      tickFormatter={(v: string) => v.slice(0, 5)}
-                    />
-                    <YAxis
-                      stroke="#525252"
-                      tick={{ fill: '#737373', fontSize: 11 }}
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}M` : `${v.toFixed(0)}K`}
-                      width={44}
-                    />
+                <h3 className="text-sm text-neutral-400 mb-4">Network Traffic</h3>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={displayedMachineMetrics.history}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
+                    <XAxis dataKey="time" stroke="#737373" fontSize={11} />
+                    <YAxis stroke="#737373" fontSize={11} />
                     <Tooltip
-                      contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #404040', borderRadius: '6px', fontSize: 12 }}
-                      labelStyle={{ color: '#a3a3a3', marginBottom: 4 }}
-                      itemStyle={{ color: '#e5e5e5' }}
-                      formatter={(value: number, name: string) => [
-                        value >= 1000 ? `${(value / 1000).toFixed(2)} Mbps` : `${value.toFixed(1)} Kbps`,
-                        name,
-                      ]}
+                      contentStyle={{
+                        backgroundColor: '#171717',
+                        border: '1px solid #262626',
+                        borderRadius: '4px',
+                      }}
+                      labelStyle={{ color: '#a3a3a3' }}
                     />
-                    <Area type="monotoneX" dataKey="netIn" stroke="#10b981" strokeWidth={2} fill="url(#gradNetIn)" dot={false} name="In" animationDuration={600} animationEasing="ease-out" />
-                    <Area type="monotoneX" dataKey="netOut" stroke="#8b5cf6" strokeWidth={2} fill="url(#gradNetOut)" dot={false} name="Out" animationDuration={600} animationEasing="ease-out" />
-                  </AreaChart>
+                    <Line type="monotone" dataKey="netIn" stroke="#10b981" strokeWidth={2} dot={false} name="In (Kbps)" />
+                    <Line type="monotone" dataKey="netOut" stroke="#8b5cf6" strokeWidth={2} dot={false} name="Out (Kbps)" />
+                  </LineChart>
                 </ResponsiveContainer>
               </div>
-
             </div>
           </div>
         ) : (
