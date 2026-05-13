@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Activity, Cpu, HardDrive, Network, Clock, Server, AlertCircle, Zap, LogOut, Plus, Copy, Check, Download } from 'lucide-react';
+import { Activity, Cpu, HardDrive, Network, Clock, Server, AlertCircle, Zap, LogOut, Plus, Copy, Check, Download, Trash2 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { apiFetch, clearAuthToken, UnauthorizedError, createMachine, issueToken } from './api';
+import { apiFetch, clearAuthToken, UnauthorizedError, createMachine, issueToken, deleteMachine } from './api';
 import { useNavigate } from './navigation';
 
 interface Machine {
@@ -500,6 +500,8 @@ export default function Dashboard() {
   const [addMachineLoading, setAddMachineLoading] = useState(false);
   const [addMachineResult, setAddMachineResult] = useState<{ machineId: string; token: string; name: string } | null>(null);
   const [copiedField, setCopiedField] = useState<'id' | 'token' | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleRequestError = (error: unknown) => {
@@ -535,6 +537,22 @@ export default function Dashboard() {
     setShowAddMachine(false);
     setAddMachineResult(null);
     setAddMachineName('');
+  };
+
+  const handleDeleteMachine = async (machineId: string) => {
+    setDeleteLoading(true);
+    try {
+      await deleteMachine(machineId);
+      setMachines(prev => prev.filter(m => m.id !== machineId));
+      setMetrics(prev => { const next = { ...prev }; delete next[machineId]; return next; });
+      setProcessMetrics(prev => { const next = { ...prev }; delete next[machineId]; return next; });
+      if (selectedMachine === machineId) setSelectedMachine(null);
+    } catch (error) {
+      handleRequestError(error);
+    } finally {
+      setDeleteLoading(false);
+      setDeleteConfirmId(null);
+    }
   };
 
   useEffect(() => {
@@ -992,6 +1010,38 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* Delete Confirmation Modal */}
+        {deleteConfirmId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <div className="bg-neutral-900 border border-neutral-800 p-6 w-full max-w-sm mx-4">
+              <h2 className="text-lg mb-2">Delete Machine</h2>
+              <p className="text-sm text-neutral-400 mb-6">
+                Are you sure you want to permanently delete{' '}
+                <span className="text-white font-mono">
+                  {machines.find(m => m.id === deleteConfirmId)?.name ?? deleteConfirmId}
+                </span>?
+                This will remove all associated metrics and data and cannot be undone.
+              </p>
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setDeleteConfirmId(null)}
+                  disabled={deleteLoading}
+                  className="px-4 py-2 border border-neutral-800 text-sm text-neutral-400 hover:text-white hover:border-neutral-700 transition-colors disabled:opacity-40"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleDeleteMachine(deleteConfirmId)}
+                  disabled={deleteLoading}
+                  className="px-4 py-2 border border-red-500/50 bg-red-500/10 text-sm text-red-300 hover:bg-red-500/20 hover:border-red-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {deleteLoading ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Threshold Settings */}
         {showSettings && (
           <div className="bg-neutral-900 border border-neutral-800 p-6 mb-6">
@@ -1095,59 +1145,76 @@ export default function Dashboard() {
             const ageSeconds = getDataAgeSeconds(machine);
 
             return (
-              <button
+              <div
                 key={machine.id}
-                onClick={() => setSelectedMachine(isSelected ? null : machine.id)}
-                className={`bg-neutral-900 border p-6 text-left transition-all ${
+                className={`relative bg-neutral-900 border transition-all ${
                   isSelected
                     ? 'border-blue-500 ring-2 ring-blue-500/20'
                     : 'border-neutral-800 hover:border-neutral-700'
                 }`}
               >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <Server className="w-4 h-4 text-neutral-400" />
-                    <span className="font-mono text-sm">{machine.name}</span>
+                <button
+                  onClick={() => setSelectedMachine(isSelected ? null : machine.id)}
+                  className="w-full p-6 text-left"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Server className="w-4 h-4 text-neutral-400" />
+                      <span className="font-mono text-sm">{machine.name}</span>
+                    </div>
                   </div>
-                  {status === 'critical' && <AlertCircle className="w-4 h-4 text-red-500" />}
-                  {status === 'warning' && <AlertCircle className="w-4 h-4 text-yellow-500" />}
-                  {status === 'healthy' && <div className="w-2 h-2 rounded-full bg-green-500" />}
-                  {status === 'offline' && <div className="w-2 h-2 rounded-full bg-neutral-500" />}
-                </div>
 
-                <div className="mb-4 flex flex-wrap gap-2 text-xs">
-                  <span className="border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300">
-                    OS: {displayValue(machine.osName)}
-                  </span>
-                  <span className="border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-500">
-                    Host: {displayValue(machine.hostname)}
-                  </span>
-                  <span className="border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-500">
-                    Seen: {formatAge(ageSeconds)}
-                  </span>
-                </div>
+                  <div className="mb-4 flex flex-wrap gap-2 text-xs">
+                    <span className="border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300">
+                      OS: {displayValue(machine.osName)}
+                    </span>
+                    <span className="border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-500">
+                      Host: {displayValue(machine.hostname)}
+                    </span>
+                    <span className="border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-500">
+                      Seen: {formatAge(ageSeconds)}
+                    </span>
+                  </div>
 
-                <div className="grid grid-cols-3 gap-3 text-xs">
-                  <div>
-                    <div className="text-neutral-500 mb-1">CPU</div>
-                    <div className={getStatusColor(machineMetrics?.cpuUsage ?? 0, { warning: effectiveThresholds.cpuWarning, critical: effectiveThresholds.cpuCritical })}>
-                      {(machineMetrics?.cpuUsage ?? 0).toFixed(0)}%
+                  <div className="grid grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <div className="text-neutral-500 mb-1">CPU</div>
+                      <div className={getStatusColor(machineMetrics?.cpuUsage ?? 0, { warning: effectiveThresholds.cpuWarning, critical: effectiveThresholds.cpuCritical })}>
+                        {(machineMetrics?.cpuUsage ?? 0).toFixed(0)}%
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-neutral-500 mb-1">RAM</div>
+                      <div className={getStatusColor(machineMetrics?.ramUsage ?? 0, { warning: effectiveThresholds.ramWarning, critical: effectiveThresholds.ramCritical })}>
+                        {(machineMetrics?.ramUsage ?? 0).toFixed(0)}%
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-neutral-500 mb-1">Disk</div>
+                      <div className={getStatusColor(machineMetrics?.diskUsage ?? 0, { warning: effectiveThresholds.diskWarning, critical: effectiveThresholds.diskCritical })}>
+                        {(machineMetrics?.diskUsage ?? 0).toFixed(0)}%
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <div className="text-neutral-500 mb-1">RAM</div>
-                    <div className={getStatusColor(machineMetrics?.ramUsage ?? 0, { warning: effectiveThresholds.ramWarning, critical: effectiveThresholds.ramCritical })}>
-                      {(machineMetrics?.ramUsage ?? 0).toFixed(0)}%
-                    </div>
+                </button>
+
+                {/* Status indicator + delete button stacked in top-right corner */}
+                <div className="absolute top-3 right-3 flex flex-col items-center gap-2">
+                  <div className="flex items-center justify-center w-5 h-5">
+                    {status === 'critical' && <AlertCircle className="w-4 h-4 text-red-500" />}
+                    {status === 'warning' && <AlertCircle className="w-4 h-4 text-yellow-500" />}
+                    {status === 'healthy' && <div className="w-2 h-2 rounded-full bg-green-500" />}
+                    {status === 'offline' && <div className="w-2 h-2 rounded-full bg-neutral-500" />}
                   </div>
-                  <div>
-                    <div className="text-neutral-500 mb-1">Disk</div>
-                    <div className={getStatusColor(machineMetrics?.diskUsage ?? 0, { warning: effectiveThresholds.diskWarning, critical: effectiveThresholds.diskCritical })}>
-                      {(machineMetrics?.diskUsage ?? 0).toFixed(0)}%
-                    </div>
-                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(machine.id); }}
+                    className="p-1 text-neutral-600 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
+                    title="Delete machine"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
