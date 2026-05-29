@@ -29,11 +29,11 @@ interface MachineMetrics {
   history: Array<{
     time: string;
     timestamp: number;
-    cpu: number;
+    cpu: number | null;
     ram: number;
     disk: number;
-    netIn: number;
-    netOut: number;
+    netIn: number | null;
+    netOut: number | null;
   }>;
 }
 
@@ -507,6 +507,12 @@ export default function Dashboard() {
   const stompClientRef = useRef<Client | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const metricsFetchedRef = useRef<Set<string>>(new Set());
+  const pendingMetricsRef = useRef<Record<string, Array<{
+    machineId: string; recordedAt: string; cpuUsage: number; ramUsage: number;
+    diskUsage: number; netInKbps: number | null; netOutKbps: number | null; uptimeSeconds: number | null;
+  }>>>({}); 
+  const pendingMachineUpdatesRef = useRef<Record<string, Machine>>({});
+  const pendingProcessUpdatesRef = useRef<Record<string, ProcessMetric[]>>({});
 
   const handleRequestError = (error: unknown) => {
     if (error instanceof UnauthorizedError) {
@@ -618,11 +624,11 @@ export default function Dashboard() {
           const history = records.map(r => ({
             time: new Date(r.recordedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
             timestamp: new Date(r.recordedAt).getTime(),
-            cpu: r.cpuUsage,
+            cpu: r.cpuUsage || null,
             ram: r.ramUsage,
             disk: r.diskUsage,
-            netIn: r.netInKbps ?? 0,
-            netOut: r.netOutKbps ?? 0,
+            netIn: r.netInKbps ?? null,
+            netOut: r.netOutKbps ?? null,
           }));
           setMetrics(prev => ({
             ...prev,
@@ -675,55 +681,22 @@ export default function Dashboard() {
       onConnect: () => {
         setWsConnected(true);
 
-        // New metric record — append to history, update latest values
+        // New metric record — buffer for 5-second UI flush
         client.subscribe('/topic/metrics', (msg: IMessage) => {
           const record: {
-            machineId: string;
-            recordedAt: string;
-            cpuUsage: number;
-            ramUsage: number;
-            diskUsage: number;
-            netInKbps: number | null;
-            netOutKbps: number | null;
-            uptimeSeconds: number | null;
+            machineId: string; recordedAt: string; cpuUsage: number; ramUsage: number;
+            diskUsage: number; netInKbps: number | null; netOutKbps: number | null; uptimeSeconds: number | null;
           } = JSON.parse(msg.body);
-
-          const newPoint = {
-            time: new Date(record.recordedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            timestamp: new Date(record.recordedAt).getTime(),
-            cpu: record.cpuUsage,
-            ram: record.ramUsage,
-            disk: record.diskUsage,
-            netIn: record.netInKbps ?? 0,
-            netOut: record.netOutKbps ?? 0,
-          };
-
-          setMetrics(prev => {
-            const existing = prev[record.machineId];
-            const history = existing
-              ? [...existing.history, newPoint].slice(-60)
-              : [newPoint];
-            return {
-              ...prev,
-              [record.machineId]: {
-                machineId: record.machineId,
-                recordedAt: record.recordedAt,
-                cpuUsage: record.cpuUsage,
-                ramUsage: record.ramUsage,
-                diskUsage: record.diskUsage,
-                netInKbps: record.netInKbps ?? 0,
-                netOutKbps: record.netOutKbps ?? 0,
-                uptimeSeconds: record.uptimeSeconds ?? 0,
-                history,
-              },
-            };
-          });
+          if (!pendingMetricsRef.current[record.machineId]) {
+            pendingMetricsRef.current[record.machineId] = [];
+          }
+          pendingMetricsRef.current[record.machineId].push(record);
         });
 
-        // Machine status update (ONLINE/OFFLINE, lastSeen)
+        // Machine status update — buffer for 5-second UI flush
         client.subscribe('/topic/machines', (msg: IMessage) => {
           const updated: Machine = JSON.parse(msg.body);
-          setMachines(prev => prev.map(m => m.id === updated.id ? updated : m));
+          pendingMachineUpdatesRef.current[updated.id] = updated;
         });
       },
       onDisconnect: () => setWsConnected(false),
@@ -745,16 +718,75 @@ export default function Dashboard() {
     const client = stompClientRef.current;
     if (!wsConnected || !selectedMachine || !client) return;
 
+    const machine = selectedMachine;
     const sub = client.subscribe(
-      `/topic/processes/${selectedMachine}`,
+      `/topic/processes/${machine}`,
       (msg: IMessage) => {
         const processes: ProcessMetric[] = JSON.parse(msg.body);
-        setProcessMetrics(prev => ({ ...prev, [selectedMachine]: processes }));
+        pendingProcessUpdatesRef.current[machine] = processes;
       }
     );
 
     return () => sub.unsubscribe();
   }, [wsConnected, selectedMachine]);
+
+  // ── 5-second UI flush: apply buffered WS updates to state ─────────────────
+  useEffect(() => {
+    const timer = setInterval(() => {
+      // Flush metric updates
+      const pendingMetrics = pendingMetricsRef.current;
+      if (Object.keys(pendingMetrics).length > 0) {
+        pendingMetricsRef.current = {};
+        setMetrics(prev => {
+          const next = { ...prev };
+          for (const [machineId, records] of Object.entries(pendingMetrics)) {
+            if (!records.length) continue;
+            const latest = records[records.length - 1];
+            const newPoints = records.map(r => ({
+              time: new Date(r.recordedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              timestamp: new Date(r.recordedAt).getTime(),
+              cpu: r.cpuUsage || null,
+              ram: r.ramUsage,
+              disk: r.diskUsage,
+              netIn: r.netInKbps ?? null,
+              netOut: r.netOutKbps ?? null,
+            }));
+            const existing = next[machineId];
+            const history = existing
+              ? [...existing.history, ...newPoints].slice(-60)
+              : newPoints;
+            next[machineId] = {
+              machineId,
+              recordedAt: latest.recordedAt,
+              cpuUsage: latest.cpuUsage,
+              ramUsage: latest.ramUsage,
+              diskUsage: latest.diskUsage,
+              netInKbps: latest.netInKbps ?? 0,
+              netOutKbps: latest.netOutKbps ?? 0,
+              uptimeSeconds: latest.uptimeSeconds ?? 0,
+              history,
+            };
+          }
+          return next;
+        });
+      }
+
+      // Flush machine status updates
+      const pendingMachines = pendingMachineUpdatesRef.current;
+      if (Object.keys(pendingMachines).length > 0) {
+        pendingMachineUpdatesRef.current = {};
+        setMachines(prev => prev.map(m => pendingMachines[m.id] ?? m));
+      }
+
+      // Flush process updates
+      const pendingProcesses = pendingProcessUpdatesRef.current;
+      if (Object.keys(pendingProcesses).length > 0) {
+        pendingProcessUpdatesRef.current = {};
+        setProcessMetrics(prev => ({ ...prev, ...pendingProcesses }));
+      }
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
 
   const effectiveThresholds = demoMode ? DEMO_THRESHOLDS : thresholds;
 
@@ -1532,7 +1564,7 @@ export default function Dashboard() {
                       }}
                       labelStyle={{ color: '#a3a3a3' }}
                     />
-                    <Line type="monotone" dataKey="cpu" stroke="#ef4444" strokeWidth={2} dot={false} name="CPU %" />
+                    <Line type="monotone" dataKey="cpu" stroke="#ef4444" strokeWidth={2} dot={false} name="CPU %" connectNulls={true} />
                     <Line type="monotone" dataKey="ram" stroke="#3b82f6" strokeWidth={2} dot={false} name="RAM %" />
                   </LineChart>
                 </ResponsiveContainer>
@@ -1553,8 +1585,8 @@ export default function Dashboard() {
                       }}
                       labelStyle={{ color: '#a3a3a3' }}
                     />
-                    <Line type="monotone" dataKey="netIn" stroke="#10b981" strokeWidth={2} dot={false} name="In (Kbps)" />
-                    <Line type="monotone" dataKey="netOut" stroke="#8b5cf6" strokeWidth={2} dot={false} name="Out (Kbps)" />
+                    <Line type="monotone" dataKey="netIn" stroke="#10b981" strokeWidth={2} dot={false} name="In (Kbps)" connectNulls={true} />
+                    <Line type="monotone" dataKey="netOut" stroke="#8b5cf6" strokeWidth={2} dot={false} name="Out (Kbps)" connectNulls={true} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
