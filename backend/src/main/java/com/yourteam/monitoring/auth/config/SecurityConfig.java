@@ -86,6 +86,8 @@ public class SecurityConfig {
                         .requestMatchers("/", "/error").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
+                        // WebSocket STOMP upgrade — JWT auth handled by ChannelInterceptor
+                        .requestMatchers("/ws/**").permitAll()
                         // Agent metric ingest — machine token auth enforced by filter
                         .requestMatchers("/api/v1/agent/**").hasRole("AGENT")
                         .requestMatchers(HttpMethod.POST, "/api/v1/machines").authenticated()

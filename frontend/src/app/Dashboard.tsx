@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { Client, IMessage } from '@stomp/stompjs';
 import { Activity, Cpu, HardDrive, Network, Clock, Server, AlertCircle, Zap, LogOut, Plus, Copy, Check, Download, Trash2 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { apiFetch, clearAuthToken, UnauthorizedError, createMachine, issueToken, deleteMachine } from './api';
+import { apiFetch, clearAuthToken, UnauthorizedError, createMachine, issueToken, deleteMachine, getAuthToken, killProcess } from './api';
 import { useNavigate } from './navigation';
 
 interface Machine {
@@ -503,6 +504,9 @@ export default function Dashboard() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const navigate = useNavigate();
+  const stompClientRef = useRef<Client | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
+  const metricsFetchedRef = useRef<Set<string>>(new Set());
 
   const handleRequestError = (error: unknown) => {
     if (error instanceof UnauthorizedError) {
@@ -518,6 +522,19 @@ export default function Dashboard() {
     try {
       const machine = await createMachine(addMachineName.trim());
       const tokenData = await issueToken(machine.id);
+      // Immediately add to the machine list as OFFLINE so the user sees it right away.
+      // Status and details are updated via WebSocket once the agent connects.
+      setMachines(prev => [...prev, {
+        id: machine.id,
+        name: machine.name,
+        hostname: null,
+        ipAddress: null,
+        osName: null,
+        agentVersion: null,
+        status: 'OFFLINE' as const,
+        lastSeen: null,
+        createdAt: new Date().toISOString(),
+      }]);
       setAddMachineResult({ machineId: machine.id, token: tokenData.plainToken, name: machine.name });
       setAddMachineName('');
     } catch (error) {
@@ -559,104 +576,185 @@ export default function Dashboard() {
     window.localStorage.setItem('monitoring-thresholds', JSON.stringify(thresholds));
   }, [thresholds]);
 
+  // ── Initial machine list fetch ─────────────────────────────────────────────
   useEffect(() => {
     const fetchMachines = async () => {
       try {
         const response = await apiFetch('/api/v1/machines');
-        if (!response.ok) {
-          throw new Error('Failed to fetch machines');
-        }
+        if (!response.ok) throw new Error('Failed to fetch machines');
         const data: Machine[] = await response.json();
         setMachines(data);
       } catch (error) {
         handleRequestError(error);
       }
     };
-
     fetchMachines();
-    const interval = setInterval(fetchMachines, 5000);
-    return () => clearInterval(interval);
   }, []);
 
+  // ── Initial metrics history fetch (once per machine) ───────────────────────
   useEffect(() => {
-    if (machines.length === 0) return;
+    const newMachines = machines.filter(m => !metricsFetchedRef.current.has(m.id));
+    if (newMachines.length === 0) return;
 
-    const fetchAllMetrics = async () => {
-      await Promise.all(
-        machines.map(async (machine) => {
-          try {
-            const res = await apiFetch(`/api/v1/machines/${machine.id}/metrics/history`);
-            if (!res.ok) return;
-            const records: Array<{
-              machineId: string;
-              recordedAt: string;
-              cpuUsage: number;
-              ramUsage: number;
-              diskUsage: number;
-              netInKbps: number | null;
-              netOutKbps: number | null;
-              uptimeSeconds: number | null;
-            }> = await res.json();
-            if (records.length === 0) return;
-
-            const latest = records[records.length - 1];
-            const history = records.map(r => ({
-              time: new Date(r.recordedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-              timestamp: new Date(r.recordedAt).getTime(),
-              cpu: r.cpuUsage,
-              ram: r.ramUsage,
-              disk: r.diskUsage,
-              netIn: r.netInKbps ?? 0,
-              netOut: r.netOutKbps ?? 0,
-            }));
-
-            setMetrics(prev => ({
-              ...prev,
-              [machine.id]: {
-                machineId: machine.id,
-                recordedAt: latest.recordedAt,
-                cpuUsage: latest.cpuUsage,
-                ramUsage: latest.ramUsage,
-                diskUsage: latest.diskUsage,
-                netInKbps: latest.netInKbps ?? 0,
-                netOutKbps: latest.netOutKbps ?? 0,
-                uptimeSeconds: latest.uptimeSeconds ?? 0,
-                history,
-              },
-            }));
-          } catch (err) {
-            handleRequestError(err);
-          }
+    newMachines.forEach(machine => {
+      metricsFetchedRef.current.add(machine.id);
+      apiFetch(`/api/v1/machines/${machine.id}/metrics/history`)
+        .then(res => {
+          if (!res.ok) return;
+          return res.json();
         })
-      );
-    };
-
-    fetchAllMetrics();
-    const interval = setInterval(fetchAllMetrics, 3000);
-    return () => clearInterval(interval);
+        .then((records: Array<{
+          machineId: string;
+          recordedAt: string;
+          cpuUsage: number;
+          ramUsage: number;
+          diskUsage: number;
+          netInKbps: number | null;
+          netOutKbps: number | null;
+          uptimeSeconds: number | null;
+        }> | undefined) => {
+          if (!records || records.length === 0) return;
+          const latest = records[records.length - 1];
+          const history = records.map(r => ({
+            time: new Date(r.recordedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            timestamp: new Date(r.recordedAt).getTime(),
+            cpu: r.cpuUsage,
+            ram: r.ramUsage,
+            disk: r.diskUsage,
+            netIn: r.netInKbps ?? 0,
+            netOut: r.netOutKbps ?? 0,
+          }));
+          setMetrics(prev => ({
+            ...prev,
+            [machine.id]: {
+              machineId: machine.id,
+              recordedAt: latest.recordedAt,
+              cpuUsage: latest.cpuUsage,
+              ramUsage: latest.ramUsage,
+              diskUsage: latest.diskUsage,
+              netInKbps: latest.netInKbps ?? 0,
+              netOutKbps: latest.netOutKbps ?? 0,
+              uptimeSeconds: latest.uptimeSeconds ?? 0,
+              history,
+            },
+          }));
+        })
+        .catch(err => handleRequestError(err));
+    });
   }, [machines]);
 
+  // ── Initial process list fetch for selected machine ────────────────────────
   useEffect(() => {
     if (!selectedMachine) return;
-
-    const fetchLatestProcesses = async () => {
-      try {
-        const response = await apiFetch(`/api/v1/machines/${selectedMachine}/processes/latest`);
-        if (!response.ok) return;
-        const data: ProcessMetric[] = await response.json();
-        setProcessMetrics(prev => ({
-          ...prev,
-          [selectedMachine]: data,
-        }));
-      } catch (error) {
-        handleRequestError(error);
-      }
-    };
-
-    fetchLatestProcesses();
-    const interval = setInterval(fetchLatestProcesses, 3000);
-    return () => clearInterval(interval);
+    apiFetch(`/api/v1/machines/${selectedMachine}/processes/latest`)
+      .then(res => {
+        if (!res.ok) return;
+        return res.json() as Promise<ProcessMetric[]>;
+      })
+      .then(data => {
+        if (!data) return;
+        setProcessMetrics(prev => ({ ...prev, [selectedMachine]: data }));
+      })
+      .catch(err => handleRequestError(err));
   }, [selectedMachine]);
+
+  // ── WebSocket / STOMP real-time feed ───────────────────────────────────────
+  useEffect(() => {
+    const token = getAuthToken();
+    if (!token) return;
+
+    const apiBase = ((import.meta.env.VITE_API_BASE_URL as string) ?? '').replace(/\/$/, '');
+    const wsUrl = apiBase
+      ? apiBase.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://') + '/ws'
+      : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+
+    const client = new Client({
+      brokerURL: wsUrl,
+      connectHeaders: { Authorization: `Bearer ${token}` },
+      reconnectDelay: 5000,
+      onConnect: () => {
+        setWsConnected(true);
+
+        // New metric record — append to history, update latest values
+        client.subscribe('/topic/metrics', (msg: IMessage) => {
+          const record: {
+            machineId: string;
+            recordedAt: string;
+            cpuUsage: number;
+            ramUsage: number;
+            diskUsage: number;
+            netInKbps: number | null;
+            netOutKbps: number | null;
+            uptimeSeconds: number | null;
+          } = JSON.parse(msg.body);
+
+          const newPoint = {
+            time: new Date(record.recordedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            timestamp: new Date(record.recordedAt).getTime(),
+            cpu: record.cpuUsage,
+            ram: record.ramUsage,
+            disk: record.diskUsage,
+            netIn: record.netInKbps ?? 0,
+            netOut: record.netOutKbps ?? 0,
+          };
+
+          setMetrics(prev => {
+            const existing = prev[record.machineId];
+            const history = existing
+              ? [...existing.history, newPoint].slice(-60)
+              : [newPoint];
+            return {
+              ...prev,
+              [record.machineId]: {
+                machineId: record.machineId,
+                recordedAt: record.recordedAt,
+                cpuUsage: record.cpuUsage,
+                ramUsage: record.ramUsage,
+                diskUsage: record.diskUsage,
+                netInKbps: record.netInKbps ?? 0,
+                netOutKbps: record.netOutKbps ?? 0,
+                uptimeSeconds: record.uptimeSeconds ?? 0,
+                history,
+              },
+            };
+          });
+        });
+
+        // Machine status update (ONLINE/OFFLINE, lastSeen)
+        client.subscribe('/topic/machines', (msg: IMessage) => {
+          const updated: Machine = JSON.parse(msg.body);
+          setMachines(prev => prev.map(m => m.id === updated.id ? updated : m));
+        });
+      },
+      onDisconnect: () => setWsConnected(false),
+      onStompError: (frame) => console.error('STOMP error', frame),
+    });
+
+    client.activate();
+    stompClientRef.current = client;
+
+    return () => {
+      client.deactivate();
+      stompClientRef.current = null;
+      setWsConnected(false);
+    };
+  }, []);
+
+  // ── Subscribe to process updates for the selected machine ──────────────────
+  useEffect(() => {
+    const client = stompClientRef.current;
+    if (!wsConnected || !selectedMachine || !client) return;
+
+    const sub = client.subscribe(
+      `/topic/processes/${selectedMachine}`,
+      (msg: IMessage) => {
+        const processes: ProcessMetric[] = JSON.parse(msg.body);
+        setProcessMetrics(prev => ({ ...prev, [selectedMachine]: processes }));
+      }
+    );
+
+    return () => sub.unsubscribe();
+  }, [wsConnected, selectedMachine]);
 
   const effectiveThresholds = demoMode ? DEMO_THRESHOLDS : thresholds;
 
@@ -1352,6 +1450,7 @@ export default function Dashboard() {
                         <th className="text-right font-normal pb-3">RAM</th>
                         <th className="text-right font-normal pb-3">RAM %</th>
                         <th className="text-right font-normal pb-3">Impact</th>
+                        <th className="text-right font-normal pb-3">Action</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1377,6 +1476,32 @@ export default function Dashboard() {
                             <span className={`inline-flex items-center border px-2 py-1 text-xs ${getImpactColor(process.impactScore)}`}>
                               {getImpactLabel(process.impactScore)}
                             </span>
+                          </td>
+                          <td className="py-3 text-right">
+                            {process.processId !== null && (
+                              <button
+                                onClick={async () => {
+                                  if (!selectedMachine) return;
+                                  // Optimistic removal
+                                  setProcessMetrics(prev => ({
+                                    ...prev,
+                                    [selectedMachine]: (prev[selectedMachine] ?? []).filter(
+                                      p => !(p.processId === process.processId && p.processName === process.processName)
+                                    ),
+                                  }));
+                                  try {
+                                    await killProcess(selectedMachine, process.processId!, process.processName);
+                                  } catch {
+                                    // Kill command failed — process will reappear on the next WebSocket update
+                                    // if it is still running. Log for debugging.
+                                    handleRequestError(new Error('Kill command failed'));
+                                  }
+                                }}
+                                className="px-2 py-1 text-xs border border-red-800 text-red-400 hover:bg-red-900/30 transition-colors"
+                              >
+                                Kill
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}

@@ -4,6 +4,7 @@ import com.yourteam.agent.collector.SystemMetricCollector;
 import com.yourteam.agent.config.AgentConfig;
 import com.yourteam.agent.dto.SystemInfoPayload;
 import com.yourteam.agent.scheduler.MetricScheduler;
+import com.yourteam.agent.sender.CommandPoller;
 import com.yourteam.agent.sender.MetricSender;
 import oshi.SystemInfo;
 import oshi.hardware.NetworkIF;
@@ -89,11 +90,16 @@ public class AgentApplication {
             System.err.println("[Agent] Register failed (non-fatal): " + e.getMessage());
         }
 
-        MetricScheduler scheduler = new MetricScheduler(collector, sender, config.intervalSeconds);
+        MetricScheduler scheduler    = new MetricScheduler(collector, sender, config.intervalSeconds);
+        CommandPoller  commandPoller = new CommandPoller(config);
 
         // Graceful shutdown on Ctrl+C or SIGTERM
-        Runtime.getRuntime().addShutdownHook(new Thread(scheduler::shutdown, "shutdown-hook"));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            scheduler.shutdown();
+            commandPoller.shutdown();
+        }, "shutdown-hook"));
 
+        commandPoller.start();
         scheduler.start();
 
         System.out.println("[Agent] Running. Press Ctrl+C to stop.");

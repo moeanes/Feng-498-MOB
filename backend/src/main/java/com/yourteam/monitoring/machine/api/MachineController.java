@@ -1,5 +1,6 @@
 package com.yourteam.monitoring.machine.api;
 
+import com.yourteam.monitoring.machine.service.MachineCommandService;
 import com.yourteam.monitoring.machine.service.MachineService;
 import com.yourteam.monitoring.machine.service.MachineTokenService;
 import jakarta.validation.Valid;
@@ -22,13 +23,16 @@ import java.util.UUID;
 @RequestMapping("/api/v1/machines")
 public class MachineController {
 
-    private final MachineService machineService;
-    private final MachineTokenService machineTokenService;
+    private final MachineService        machineService;
+    private final MachineTokenService   machineTokenService;
+    private final MachineCommandService machineCommandService;
 
     public MachineController(MachineService machineService,
-                             MachineTokenService machineTokenService) {
-        this.machineService      = machineService;
-        this.machineTokenService = machineTokenService;
+                             MachineTokenService machineTokenService,
+                             MachineCommandService machineCommandService) {
+        this.machineService        = machineService;
+        this.machineTokenService   = machineTokenService;
+        this.machineCommandService = machineCommandService;
     }
 
     @GetMapping
@@ -91,6 +95,17 @@ public class MachineController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void revokeTokens(@PathVariable UUID machineId) {
         machineTokenService.revokeAllTokens(machineId);
+    }
+
+    /**
+     * Enqueues a kill-process command for the specified machine.
+     * The agent picks it up on its next polling cycle and executes it.
+     */
+    @PostMapping("/{machineId}/commands/kill")
+    @ResponseStatus(HttpStatus.CREATED)
+    public void killProcess(@PathVariable UUID machineId,
+                            @Valid @RequestBody KillProcessRequest request) {
+        machineCommandService.createKillCommand(machineId, request);
     }
 
     /**

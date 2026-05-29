@@ -86,3 +86,12 @@ export const deleteMachine = async (machineId: string) => {
   });
   if (!response.ok) throw new Error('Failed to delete machine');
 };
+
+export const killProcess = async (machineId: string, pid: number, processName: string) => {
+  const response = await apiFetch(`/api/v1/machines/${machineId}/commands/kill`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pid, processName }),
+  });
+  if (!response.ok) throw new Error('Failed to send kill command');
+};

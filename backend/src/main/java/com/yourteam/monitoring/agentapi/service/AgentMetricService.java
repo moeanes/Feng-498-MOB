@@ -4,6 +4,9 @@ import com.yourteam.monitoring.agentapi.api.AgentMetricIngestRequest;
 import com.yourteam.monitoring.agentapi.api.AgentMetricIngestResponse;
 import com.yourteam.monitoring.agentapi.api.AgentRegisterRequest;
 import com.yourteam.monitoring.alert.service.AlertEvaluationService;
+import com.yourteam.monitoring.machine.api.MachineResponse;
+import com.yourteam.monitoring.machine.api.MachineMetricResponse;
+import com.yourteam.monitoring.machine.api.ProcessMetricResponse;
 import com.yourteam.monitoring.machine.domain.Machine;
 import com.yourteam.monitoring.machine.repo.MachineRepository;
 import com.yourteam.monitoring.metric.domain.MetricRecord;
@@ -11,6 +14,7 @@ import com.yourteam.monitoring.metric.domain.ProcessMetricRecord;
 import com.yourteam.monitoring.metric.repo.MetricRecordRepository;
 import com.yourteam.monitoring.metric.repo.ProcessMetricRecordRepository;
 import org.springframework.http.HttpStatus;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -27,17 +31,20 @@ public class AgentMetricService {
     private final MetricRecordRepository metricRecordRepository;
     private final ProcessMetricRecordRepository processMetricRecordRepository;
     private final AlertEvaluationService alertEvaluationService;
+    private final SimpMessagingTemplate messagingTemplate;
 
     public AgentMetricService(
             MachineRepository machineRepository,
             MetricRecordRepository metricRecordRepository,
             ProcessMetricRecordRepository processMetricRecordRepository,
-            AlertEvaluationService alertEvaluationService
+            AlertEvaluationService alertEvaluationService,
+            SimpMessagingTemplate messagingTemplate
     ) {
         this.machineRepository = machineRepository;
         this.metricRecordRepository = metricRecordRepository;
         this.processMetricRecordRepository = processMetricRecordRepository;
         this.alertEvaluationService = alertEvaluationService;
+        this.messagingTemplate = messagingTemplate;
     }
 
     @Transactional
@@ -77,6 +84,55 @@ public class AgentMetricService {
         MetricRecord saved = metricRecordRepository.save(metricRecord);
         saveProcessMetrics(request, saved);
         alertEvaluationService.evaluate(saved);
+
+        // Broadcast the new metric to all connected dashboard clients
+        messagingTemplate.convertAndSend("/topic/metrics",
+                new MachineMetricResponse(
+                        saved.getId(),
+                        saved.getMachineId(),
+                        saved.getRecordedAt(),
+                        saved.getCpuUsage(),
+                        saved.getRamUsage(),
+                        saved.getDiskUsage(),
+                        saved.getNetInKbps(),
+                        saved.getNetOutKbps(),
+                        saved.getUptimeSeconds()
+                ));
+
+        // Broadcast the updated machine status
+        messagingTemplate.convertAndSend("/topic/machines",
+                new MachineResponse(
+                        machine.getId(),
+                        machine.getName(),
+                        machine.getHostname(),
+                        machine.getIpAddress(),
+                        machine.getOsName(),
+                        machine.getAgentVersion(),
+                        machine.getStatus(),
+                        machine.getLastSeen(),
+                        machine.getCreatedAt()
+                ));
+
+        // Broadcast the latest process list for this machine
+        if (request.topProcesses() != null && !request.topProcesses().isEmpty()) {
+            List<ProcessMetricResponse> processResponses = request.topProcesses().stream()
+                    .limit(10)
+                    .map(p -> new ProcessMetricResponse(
+                            null,
+                            saved.getId(),
+                            saved.getMachineId(),
+                            saved.getRecordedAt(),
+                            p.processId(),
+                            p.processName(),
+                            p.instanceCount(),
+                            p.cpuUsage(),
+                            p.ramUsageMb(),
+                            p.ramUsagePercent(),
+                            p.impactScore()
+                    ))
+                    .toList();
+            messagingTemplate.convertAndSend("/topic/processes/" + saved.getMachineId(), processResponses);
+        }
 
         return new AgentMetricIngestResponse(
                 saved.getId(),
